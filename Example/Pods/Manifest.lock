@@ -1,0 +1,16 @@
+PODS:
+  - MCcircadianQueries (0.1.0)
+
+DEPENDENCIES:
+  - MCcircadianQueries (from `../`)
+
+EXTERNAL SOURCES:
+  MCcircadianQueries:
+    :path: "../"
+
+SPEC CHECKSUMS:
+  MCcircadianQueries: 679205fc617efe47a6e7a31a38bb8c49dbed657b
+
+PODFILE CHECKSUM: db13418162da2cf176124d8459c0caeff6cb2c25
+
+COCOAPODS: 1.0.1

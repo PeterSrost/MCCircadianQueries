@@ -1,0 +1,22 @@
+{
+  "name": "MCcircadianQueries",
+  "version": "0.1.0",
+  "summary": "A short description of MCcircadianQueries.",
+  "description": "TODO: Add long description of the pod here.",
+  "homepage": "https://github.com/<GITHUB_USERNAME>/MCcircadianQueries",
+  "license": {
+    "type": "MIT",
+    "file": "LICENSE"
+  },
+  "authors": {
+    "twoolf": "twoolf@jhu.edu"
+  },
+  "source": {
+    "git": "https://github.com/<GITHUB_USERNAME>/MCcircadianQueries.git",
+    "tag": "0.1.0"
+  },
+  "platforms": {
+    "ios": "8.0"
+  },
+  "source_files": "MCcircadianQueries/Classes/**/*"
+}
