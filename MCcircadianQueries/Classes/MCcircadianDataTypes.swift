@@ -10,6 +10,7 @@ public enum CircadianEvent {
     case Exercise
 }
 
+let log = SwiftyBeaver.self
 /*
  * A protocol for unifying common metadata across HKSample and HKStatistic
  */
