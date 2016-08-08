@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name        = "MCcircadianQueries"
-  s.version     = "0.1.1"
+  s.version     = "0.1.2"
   s.summary     = "To enable code sharing between iOS App and WatchKit Extension for Metabolic Compass Circadian queries"
   s.homepage    = "https://github.com/twoolf/MCcircadianQueries"
   s.license     = { :type => "MIT" }
@@ -13,7 +13,7 @@ Pod::Spec.new do |s|
   s.ios.deployment_target = "8.0"
   s.tvos.deployment_target = "9.0"
   s.watchos.deployment_target = "2.0"
-  s.source   = { :git => "https://github.com/twoolf/QueryHK.git", :tag => "0.1.1"}
+  s.source   = { :git => "https://github.com/twoolf/QueryHK.git", :tag => "0.1.2"}
   s.source_files = "MCcircadianQueries/Classes/*.swift"
   s.requires_arc = true
   s.module_name = 'MCcircadianQueries'
