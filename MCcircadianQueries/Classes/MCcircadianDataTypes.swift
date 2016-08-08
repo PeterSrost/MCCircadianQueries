@@ -3,6 +3,8 @@ import HealthKit
 import AwesomeCache
 import SwiftyBeaver
 
+let log = SwiftyBeaver.self
+
 public enum CircadianEvent {
     case Meal
     case Fast

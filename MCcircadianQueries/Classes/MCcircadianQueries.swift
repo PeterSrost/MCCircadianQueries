@@ -84,34 +84,35 @@ public class MCcircadianQueries: NSObject {
     let kUnknownString   = "Unknown"
     
     public static let sharedManager = MCcircadianQueries()
-    
+   
     public func periodAggregation(statisticsRange: HealthManagerStatisticsRangeType) -> (NSPredicate, NSDate, NSDate, NSCalendarUnit)
     {
         var unit : NSCalendarUnit
         var startDate : NSDate
         var endDate : NSDate = NSDate()
-        
+
         switch statisticsRange {
         case .Week:
             unit = .Day
             endDate = endDate.startOf(.Day) + 1.days
             startDate = endDate - 1.weeks
-            
+
         case .Month:
             // Retrieve a full 31 days worth of data, regardless of the month duration (e.g., 28/29/30/31 days)
             unit = .Day
             endDate = endDate.startOf(.Day) + 1.days
             startDate = endDate - 32.days
-            
+
         case .Year:
             unit = .Month
             endDate = endDate.startOf(.Month) + 1.months
             startDate = endDate - 1.years
         }
-        
+
         let predicate = HKQuery.predicateForSamplesWithStartDate(startDate, endDate: endDate, options: .None)
         return (predicate, startDate, endDate, unit)
     }
+ 
     
     public func getPeriodCacheKey(keyPrefix: String, aggOp: HKStatisticsOptions, period: HealthManagerStatisticsRangeType) -> String {
         return "\(keyPrefix)_\(aggOp.rawValue)_\(period.rawValue)"
@@ -1629,3 +1630,35 @@ public class MCcircadianQueries: NSObject {
         }
     }
 }
+
+
+/*  from previous version:
+
+
+    public func periodAggregation(statisticsRange: HealthManagerStatisticsRangeType) -> (NSPredicate, NSDate, NSDate, NSCalendarUnit)
+    {
+        var unit : NSCalendarUnit
+        var startDate : NSDate
+        var endDate : NSDate = NSDate()
+        
+        switch statisticsRange {
+        case .Week:
+            unit = .Day
+            endDate = endDate.startOf(.Day) + 1.days
+            startDate = endDate - 1.weeks
+            
+        case .Month:
+            // Retrieve a full 31 days worth of data, regardless of the month duration (e.g., 28/29/30/31 days)
+            unit = .Day
+            endDate = endDate.startOf(.Day) + 1.days
+            startDate = endDate - 32.days
+            
+        case .Year:
+            unit = .Month
+            endDate = endDate.startOf(.Month) + 1.months
+            startDate = endDate - 1.years
+        }
+        
+        let predicate = HKQuery.predicateForSamplesWithStartDate(startDate, endDate: endDate, options: .None)
+        return (predicate, startDate, endDate, unit)
+    }
