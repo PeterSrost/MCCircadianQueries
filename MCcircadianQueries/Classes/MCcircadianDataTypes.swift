@@ -20,7 +20,6 @@ public protocol MCSample {
     var startDate    : NSDate        { get }
     var endDate      : NSDate        { get }
     var numeralValue : Double?       { get }
-    var defaultUnit  : HKUnit?       { get }
     var hkType       : HKSampleType? { get }
 }
 
@@ -31,23 +30,22 @@ public struct MCStatisticSample : MCSample {
 
     public var startDate    : NSDate        { return statistic.startDate   }
     public var endDate      : NSDate        { return statistic.endDate     }
-    public var defaultUnit  : HKUnit?       { return statistic.defaultUnit }
     public var hkType       : HKSampleType? { return statistic.hkType      }
 
     public init(statistic: HKStatistics, statsOption: HKStatisticsOptions) {
         self.statistic = statistic
         self.numeralValue = nil
         if ( statsOption.contains(.DiscreteAverage) ) {
-            self.numeralValue = statistic.averageQuantity()?.doubleValueForUnit(defaultUnit!)
+            self.numeralValue = statistic.averageQuantity()?.doubleValueForUnit(hkType!.defaultUnit!)
         }
         if ( statsOption.contains(.DiscreteMin) ) {
-            self.numeralValue = statistic.minimumQuantity()?.doubleValueForUnit(defaultUnit!)
+            self.numeralValue = statistic.minimumQuantity()?.doubleValueForUnit(hkType!.defaultUnit!)
         }
         if ( statsOption.contains(.DiscreteMax) ) {
-            self.numeralValue = statistic.maximumQuantity()?.doubleValueForUnit(defaultUnit!)
+            self.numeralValue = statistic.maximumQuantity()?.doubleValueForUnit(hkType!.defaultUnit!)
         }
         if ( statsOption.contains(.CumulativeSum) ) {
-            self.numeralValue = statistic.sumQuantity()?.doubleValueForUnit(defaultUnit!)
+            self.numeralValue = statistic.sumQuantity()?.doubleValueForUnit(hkType!.defaultUnit!)
         }
     }
 }
@@ -65,7 +63,6 @@ public struct MCAggregateSample : MCSample {
     public var startDate    : NSDate
     public var endDate      : NSDate
     public var numeralValue : Double?
-    public var defaultUnit  : HKUnit?
     public var hkType       : HKSampleType?
     public var aggOp        : HKStatisticsOptions
 
@@ -76,7 +73,6 @@ public struct MCAggregateSample : MCSample {
         startDate = sample.startDate
         endDate = sample.endDate
         numeralValue = nil
-        defaultUnit = nil
         hkType = sample.hkType
         aggOp = op
         self.incr(sample)
@@ -86,7 +82,6 @@ public struct MCAggregateSample : MCSample {
         self.startDate = startDate
         self.endDate = endDate
         numeralValue = value
-        defaultUnit = sampleType?.defaultUnit
         hkType = sampleType
         aggOp = op
     }
@@ -95,32 +90,30 @@ public struct MCAggregateSample : MCSample {
         startDate = statistic.startDate
         endDate = statistic.endDate
         numeralValue = statistic.numeralValue
-        defaultUnit = statistic.defaultUnit
         hkType = statistic.hkType
         aggOp = op
 
         // Initialize internal statistics.
         if let sumQ = statistic.sumQuantity() {
-            runningAgg[0] = sumQ.doubleValueForUnit(statistic.defaultUnit!)
+            runningAgg[0] = sumQ.doubleValueForUnit(hkType!.defaultUnit!)
         } else if let avgQ = statistic.averageQuantity() {
-            runningAgg[0] = avgQ.doubleValueForUnit(statistic.defaultUnit!)
+            runningAgg[0] = avgQ.doubleValueForUnit(hkType!.defaultUnit!)
             runningCnt = 1
         }
         if let minQ = statistic.minimumQuantity() {
-            runningAgg[1] = minQ.doubleValueForUnit(statistic.defaultUnit!)
+            runningAgg[1] = minQ.doubleValueForUnit(hkType!.defaultUnit!)
         }
         if let maxQ = statistic.maximumQuantity() {
-            runningAgg[2] = maxQ.doubleValueForUnit(statistic.defaultUnit!)
+            runningAgg[2] = maxQ.doubleValueForUnit(hkType!.defaultUnit!)
         }
     }
 
-    public init(startDate: NSDate, endDate: NSDate, numeralValue: Double?, defaultUnit: HKUnit?,
-                hkType: HKSampleType?, aggOp: HKStatisticsOptions, runningAgg: [Double], runningCnt: Int)
+    public init(startDate: NSDate, endDate: NSDate, numeralValue: Double?, hkType: HKSampleType?,
+                aggOp: HKStatisticsOptions, runningAgg: [Double], runningCnt: Int)
     {
         self.startDate = startDate
         self.endDate = endDate
         self.numeralValue = numeralValue
-        self.defaultUnit = defaultUnit
         self.hkType = hkType
         self.aggOp = aggOp
         self.runningAgg = runningAgg
@@ -259,14 +252,13 @@ public extension MCAggregateSample {
             guard let startDate    = aDecoder.decodeObjectForKey("startDate")    as? NSDate         else { log.error("Failed to rebuild MCAggregateSample startDate"); aggregate = nil; super.init(); return nil }
             guard let endDate      = aDecoder.decodeObjectForKey("endDate")      as? NSDate         else { log.error("Failed to rebuild MCAggregateSample endDate"); aggregate = nil; super.init(); return nil }
             guard let numeralValue = aDecoder.decodeObjectForKey("numeralValue") as? Double?        else { log.error("Failed to rebuild MCAggregateSample numeralValue"); aggregate = nil; super.init(); return nil }
-            guard let defaultUnit  = aDecoder.decodeObjectForKey("defaultUnit")  as? HKUnit?        else { log.error("Failed to rebuild MCAggregateSample defaultUnit"); aggregate = nil; super.init(); return nil }
             guard let hkType       = aDecoder.decodeObjectForKey("hkType")       as? HKSampleType?  else { log.error("Failed to rebuild MCAggregateSample hkType"); aggregate = nil; super.init(); return nil }
             guard let aggOp        = aDecoder.decodeObjectForKey("aggOp")        as? UInt           else { log.error("Failed to rebuild MCAggregateSample aggOp"); aggregate = nil; super.init(); return nil }
             guard let runningAgg   = aDecoder.decodeObjectForKey("runningAgg")   as? [Double]       else { log.error("Failed to rebuild MCAggregateSample runningAgg"); aggregate = nil; super.init(); return nil }
             guard let runningCnt   = aDecoder.decodeObjectForKey("runningCnt")   as? Int            else { log.error("Failed to rebuild MCAggregateSample runningCnt"); aggregate = nil; super.init(); return nil }
 
-            aggregate = MCAggregateSample(startDate: startDate, endDate: endDate, numeralValue: numeralValue, defaultUnit: defaultUnit,
-                                          hkType: hkType, aggOp: HKStatisticsOptions(rawValue: aggOp), runningAgg: runningAgg, runningCnt: runningCnt)
+            aggregate = MCAggregateSample(startDate: startDate, endDate: endDate, numeralValue: numeralValue, hkType: hkType,
+                                          aggOp: HKStatisticsOptions(rawValue: aggOp), runningAgg: runningAgg, runningCnt: runningCnt)
 
             super.init()
         }
@@ -275,7 +267,6 @@ public extension MCAggregateSample {
             aCoder.encodeObject(aggregate!.startDate,      forKey: "startDate")
             aCoder.encodeObject(aggregate!.endDate,        forKey: "endDate")
             aCoder.encodeObject(aggregate!.numeralValue,   forKey: "numeralValue")
-            aCoder.encodeObject(aggregate!.defaultUnit,    forKey: "defaultUnit")
             aCoder.encodeObject(aggregate!.hkType,         forKey: "hkType")
             aCoder.encodeObject(aggregate!.aggOp.rawValue, forKey: "aggOp")
             aCoder.encodeObject(aggregate!.runningAgg,     forKey: "runningAgg")
@@ -391,13 +382,11 @@ public extension HKStatistics {
     }
 
     public var numeralValue: Double? {
-        guard defaultUnit != nil && quantity != nil else {
+        guard hkType?.defaultUnit != nil && quantity != nil else {
             return nil
         }
-        return quantity!.doubleValueForUnit(defaultUnit!)
+        return quantity!.doubleValueForUnit(hkType!.defaultUnit!)
     }
-    @available(iOS 9.0, *)
-    public var defaultUnit: HKUnit? { return quantityType.defaultUnit }
 
     public var hkType: HKSampleType? { return quantityType }
 }
@@ -411,10 +400,7 @@ extension HKSample: MCSample { }
 @available(iOS 9.0, *)
 public extension HKSampleType {
 
-    public var defaultUnit: HKUnit? {
-//        let isMetric: Bool = UserManager.sharedManager.useMetricUnits()
-        let isMetric: Bool = true
-
+    public func unitForSystem(metric: Bool) -> HKUnit? {
         switch identifier {
         case HKCategoryTypeIdentifierSleepAnalysis:
             return HKUnit.hourUnit()
@@ -450,7 +436,7 @@ public extension HKSampleType {
             return HKUnit.percentUnit()
 
         case HKQuantityTypeIdentifierBodyMass:
-            return isMetric ? HKUnit.gramUnitWithMetricPrefix(.Kilo) : HKUnit.poundUnit()
+            return metric ? HKUnit.gramUnitWithMetricPrefix(.Kilo) : HKUnit.poundUnit()
 
         case HKQuantityTypeIdentifierBodyMassIndex:
             return HKUnit.countUnit()
@@ -576,7 +562,7 @@ public extension HKSampleType {
             return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
 
         case HKQuantityTypeIdentifierDistanceWalkingRunning:
-            return isMetric ? HKUnit.meterUnitWithMetricPrefix(HKMetricPrefix.Kilo) : HKUnit.mileUnit()
+            return metric ? HKUnit.meterUnitWithMetricPrefix(HKMetricPrefix.Kilo) : HKUnit.mileUnit()
 
         case HKQuantityTypeIdentifierElectrodermalActivity:
             return HKUnit.siemenUnitWithMetricPrefix(HKMetricPrefix.Micro)
@@ -591,13 +577,13 @@ public extension HKSampleType {
             return HKUnit.literUnit()
 
         case HKQuantityTypeIdentifierHeight:
-            return isMetric ? HKUnit.meterUnitWithMetricPrefix(HKMetricPrefix.Centi) : HKUnit.footUnit()
+            return metric ? HKUnit.meterUnitWithMetricPrefix(HKMetricPrefix.Centi) : HKUnit.footUnit()
 
         case HKQuantityTypeIdentifierInhalerUsage:
             return HKUnit.countUnit()
 
         case HKQuantityTypeIdentifierLeanBodyMass:
-            return isMetric ? HKUnit.gramUnitWithMetricPrefix(.Kilo) : HKUnit.poundUnit()
+            return metric ? HKUnit.gramUnitWithMetricPrefix(.Kilo) : HKUnit.poundUnit()
 
         case HKQuantityTypeIdentifierHeartRate:
             return HKUnit.countUnit().unitDividedByUnit(HKUnit.minuteUnit())
@@ -610,28 +596,32 @@ public extension HKSampleType {
 
         case HKQuantityTypeIdentifierOxygenSaturation:
             return HKUnit.percentUnit()
-
+            
         case HKQuantityTypeIdentifierPeakExpiratoryFlowRate:
             return HKUnit.literUnit().unitDividedByUnit(HKUnit.minuteUnit())
-
+            
         case HKQuantityTypeIdentifierPeripheralPerfusionIndex:
             return HKUnit.percentUnit()
-
+            
         case HKQuantityTypeIdentifierRespiratoryRate:
             return HKUnit.countUnit().unitDividedByUnit(HKUnit.minuteUnit())
-
+            
         case HKQuantityTypeIdentifierStepCount:
             return HKUnit.countUnit()
-
+            
         case HKQuantityTypeIdentifierUVExposure:
             return HKUnit.countUnit()
-
+            
         case HKWorkoutTypeIdentifier:
             return HKUnit.hourUnit()
-
+            
         default:
             return nil
         }
+    }
+
+    public var defaultUnit: HKUnit? {
+        return unitForSystem(true)
     }
 
     // Units used by the MC webservice.
@@ -859,7 +849,7 @@ public extension HKSampleType {
 @available(iOS 9.0, *)
 public extension HKSample {
     public var numeralValue: Double? {
-        guard defaultUnit != nil else {
+        guard hkType?.defaultUnit != nil else {
             return nil
         }
         switch sampleType {
@@ -868,7 +858,7 @@ public extension HKSample {
             case HKCategoryTypeIdentifierSleepAnalysis:
                 let sample = (self as! HKCategorySample)
                 let secs = HKQuantity(unit: HKUnit.secondUnit(), doubleValue: sample.endDate.timeIntervalSinceDate(sample.startDate))
-                return secs.doubleValueForUnit(defaultUnit!)
+                return secs.doubleValueForUnit(hkType!.defaultUnit!)
             default:
                 return nil
             }
@@ -876,7 +866,7 @@ public extension HKSample {
         case is HKCorrelationType:
             switch sampleType.identifier {
             case HKCorrelationTypeIdentifierBloodPressure:
-                return ((self as! HKCorrelation).objects.first as! HKQuantitySample).quantity.doubleValueForUnit(defaultUnit!)
+                return ((self as! HKCorrelation).objects.first as! HKQuantitySample).quantity.doubleValueForUnit(hkType!.defaultUnit!)
             default:
                 return nil
             }
@@ -884,17 +874,15 @@ public extension HKSample {
         case is HKWorkoutType:
             let sample = (self as! HKWorkout)
             let secs = HKQuantity(unit: HKUnit.secondUnit(), doubleValue: sample.duration)
-            return secs.doubleValueForUnit(defaultUnit!)
+            return secs.doubleValueForUnit(hkType!.defaultUnit!)
 
         case is HKQuantityType:
-            return (self as! HKQuantitySample).quantity.doubleValueForUnit(defaultUnit!)
+            return (self as! HKQuantitySample).quantity.doubleValueForUnit(hkType!.defaultUnit!)
 
         default:
             return nil
         }
     }
-
-    public var defaultUnit: HKUnit? { return sampleType.defaultUnit }
 
     public var hkType: HKSampleType? { return sampleType }
 }
