@@ -379,6 +379,7 @@ public extension Array where Element: HKSample {
  */
 extension HKStatistics: MCSample { }
 
+@available(iOS 9.0, *)
 public extension HKStatistics {
     var quantity: HKQuantity? {
         switch quantityType.aggregationStyle {
@@ -395,7 +396,7 @@ public extension HKStatistics {
         }
         return quantity!.doubleValueForUnit(defaultUnit!)
     }
-
+    @available(iOS 9.0, *)
     public var defaultUnit: HKUnit? { return quantityType.defaultUnit }
 
     public var hkType: HKSampleType? { return quantityType }
@@ -407,10 +408,12 @@ public extension HKStatistics {
 
 extension HKSample: MCSample { }
 
+@available(iOS 9.0, *)
 public extension HKSampleType {
 
     public var defaultUnit: HKUnit? {
-        let isMetric: Bool = UserManager.sharedManager.useMetricUnits()
+//        let isMetric: Bool = UserManager.sharedManager.useMetricUnits()
+        let isMetric: Bool = true
 
         switch identifier {
         case HKCategoryTypeIdentifierSleepAnalysis:
@@ -853,6 +856,7 @@ public extension HKSampleType {
     }
 }
 
+@available(iOS 9.0, *)
 public extension HKSample {
     public var numeralValue: Double? {
         guard defaultUnit != nil else {
@@ -896,6 +900,7 @@ public extension HKSample {
 }
 
 // Readable type description.
+@available(iOS 9.0, *)
 public extension HKSampleType {
     public var displayText: String? {
         switch identifier {

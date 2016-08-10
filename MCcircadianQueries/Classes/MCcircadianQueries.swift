@@ -1,11 +1,8 @@
-import Darwin
 import HealthKit
-import WatchConnectivity
-import SwiftyJSON
-import SwiftyBeaver
-import SwiftyUserDefaults
+import Foundation
 import SwiftDate
 import AwesomeCache
+import SwiftyBeaver
 
 // Constants.
 private let refDate  = NSDate(timeIntervalSinceReferenceDate: 0)
@@ -13,6 +10,11 @@ private let noLimit  = Int(HKObjectQueryNoLimit)
 private let dateAsc  = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
 private let dateDesc = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
 private let lastChartsDataCacheKey = "lastChartsDataCacheKey"
+
+let stWorkout = 0.0
+let stSleep = 0.33
+let stFast = 0.66
+let stEat = 1.0
 
 // Enums
 public enum HealthManagerStatisticsRangeType : Int {
@@ -22,64 +24,79 @@ public enum HealthManagerStatisticsRangeType : Int {
 }
 
 public enum AggregateQueryResult {
+    @available(iOS 9.0, *)
     case AggregatedSamples([MCAggregateSample])
     case Statistics([HKStatistics])
     case None
 }
 
-public typealias HMAuthorizationBlock  = (success: Bool, error: NSError?) -> Void
-public typealias HMSampleBlock         = (samples: [MCSample], error: NSError?) -> Void
-public typealias HMTypedSampleBlock    = (samples: [HKSampleType: [MCSample]], error: NSError?) -> Void
-public typealias HMAggregateBlock      = (aggregates: AggregateQueryResult, error: NSError?) -> Void
-public typealias HMCorrelationBlock    = ([MCSample], [MCSample], NSError?) -> Void
-
-public typealias HMCircadianBlock          = (intervals: [(NSDate, CircadianEvent)], error: NSError?) -> Void
-public typealias HMCircadianAggregateBlock = (aggregates: [(NSDate, Double)], error: NSError?) -> Void
-public typealias HMCircadianCategoryBlock  = (categories: [Int:Double], error: NSError?) -> Void
-
-public typealias HMFastingCorrelationBlock = ([(NSDate, Double, MCSample)], NSError?) -> Void
-
-public typealias HMAnchorQueryBlock    = (HKAnchoredObjectQuery, [HKSample]?, [HKDeletedObject]?, HKQueryAnchor?, NSError?) -> Void
-public typealias HMAnchorSamplesBlock  = (added: [HKSample], deleted: [HKDeletedObject], newAnchor: HKQueryAnchor?, error: NSError?) -> Void
-public typealias HMAnchorSamplesCBlock = (added: [HKSample], deleted: [HKDeletedObject], newAnchor: HKQueryAnchor?, error: NSError?, completion: () -> Void) -> Void
-
-public typealias HMAggregateCache = Cache<MCAggregateArray>
-
-public let HMErrorDomain                        = "HMErrorDomain"
-public let HMSampleTypeIdentifierSleepDuration  = "HMSampleTypeIdentifierSleepDuration"
-public let HMDidUpdateRecentSamplesNotification = "HMDidUpdateRecentSamplesNotification"
-public let HMDidUpdatedChartsData = "HMDidUpdatedChartsData"
 
 
 /**
  This is the main manager of information reads/writes from HealthKit.  We use AnchorQueries to support continued updates.  Please see Apple Docs for syntax on reading/writing
 
  */
-public class MCcircadianQueries: NSObject, WCSessionDelegate {
+@available(iOS 9.0, *)
+public class MCcircadianQueries: NSObject {
 
     public static let sharedManager = MCcircadianQueries()
 
     lazy var healthKitStore: HKHealthStore = HKHealthStore()
     var aggregateCache: HMAggregateCache
     var observerQueries: [HKQuery] = []
+    
+    
+    public typealias HMAuthorizationBlock  = (success: Bool, error: NSError?) -> Void
+    @available(iOS 9.0, *)
+    public typealias HMSampleBlock         = (samples: [MCSample], error: NSError?) -> Void
+    @available(iOS 9.0, *)
+    public typealias HMTypedSampleBlock    = (samples: [HKSampleType: [MCSample]], error: NSError?) -> Void
+    public typealias HMAggregateBlock      = (aggregates: AggregateQueryResult, error: NSError?) -> Void
+    @available(iOS 9.0, *)
+    public typealias HMCorrelationBlock    = ([MCSample], [MCSample], NSError?) -> Void
+    
+    public typealias HMCircadianBlock          = (intervals: [(NSDate, CircadianEvent)], error: NSError?) -> Void
+    public typealias HMCircadianAggregateBlock = (aggregates: [(NSDate, Double)], error: NSError?) -> Void
+    public typealias HMCircadianCategoryBlock  = (categories: [Int:Double], error: NSError?) -> Void
+    @available(iOS 9.0, *)
+    public typealias HMFastingCorrelationBlock = ([(NSDate, Double, MCSample)], NSError?) -> Void
+    
+    @available(iOS 9.0, *)
+    public typealias HMAnchorQueryBlock    = (HKAnchoredObjectQuery, [HKSample]?, [HKDeletedObject]?, HKQueryAnchor?, NSError?) -> Void
+    @available(iOS 9.0, *)
+    public typealias HMAnchorSamplesBlock  = (added: [HKSample], deleted: [HKDeletedObject], newAnchor: HKQueryAnchor?, error: NSError?) -> Void
+    @available(iOS 9.0, *)
+    public typealias HMAnchorSamplesCBlock = (added: [HKSample], deleted: [HKDeletedObject], newAnchor: HKQueryAnchor?, error: NSError?, completion: () -> Void) -> Void
+    @available(iOS 9.0, *)
+    public typealias HMAggregateCache = Cache<MCAggregateArray>
+    
+    public let HMErrorDomain                        = "HMErrorDomain"
+    public let HMSampleTypeIdentifierSleepDuration  = "HMSampleTypeIdentifierSleepDuration"
+//    public let HMDidUpdateRecentSamplesNotification = "HMDidUpdateRecentSamplesNotification"
+    //public let HMDidUpdatedChartsData = "HMDidUpdatedChartsData"
 
-    public var mostRecentSamples = [HKSampleType: [MCSample]]() {
+/*    public var mostRecentSamples = [HKSampleType: [MCSample]]() {
         didSet {
             self.updateWatchContext()
         }
     }
-
-    private override init() {
+*/
+    public override init() {
         do {
-            self.aggregateCache = try HMAggregateCache(name: "HMAggregateCache")
+            if #available(iOS 9.0, *) {
+                self.aggregateCache = try HMAggregateCache(name: "HMAggregateCache")
+            } else {
+                self.aggregateCache = try HMAggregateCache(name: "HMAggregateCache")
+            }
         } catch _ {
             fatalError("Unable to create HealthManager aggregate cache.")
         }
         super.init()
-        connectWatch()
+//        connectWatch()
     }
+ 
 
-    public func reset() {
+/*    public func reset() {
         mostRecentSamples = [:]
         aggregateCache.removeAllObjects()
     }
@@ -95,9 +112,9 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
 
         healthKitStore.requestAuthorizationToShareTypes(HMConstants.sharedInstance.healthKitTypesToWrite, readTypes: HMConstants.sharedInstance.healthKitTypesToRead, completion: completion)
     }
-
+*/
     // MARK: - Helpers
-    func durationOfCalendarUnitInSeconds(aggUnit: NSCalendarUnit) -> Double {
+    public func durationOfCalendarUnitInSeconds(aggUnit: NSCalendarUnit) -> Double {
         switch aggUnit {
         case NSCalendarUnit.Second:
             return 1.0
@@ -162,7 +179,7 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
         let predicate = HKQuery.predicateForSamplesWithStartDate(startDate, endDate: endDate, options: .None)
         return (predicate, startDate, endDate, unit)
     }
-
+/*
     // MARK: - Sample testing
     public func isGeneratedSample(sample: HKSample) -> Bool {
         if let unwrappedMetadata = sample.metadata, _ = unwrappedMetadata[HMConstants.sharedInstance.generatedSampleKey] {
@@ -186,6 +203,7 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
 
     // Retrieves Healthit samples for the given type, predicate, limit and sorting
     // Completion handler is on background queue
+     */
     public func fetchSamplesOfType(sampleType: HKSampleType, predicate: NSPredicate? = nil, limit: Int = noLimit,
                                    sortDescriptors: [NSSortDescriptor]? = [dateAsc], completion: HMSampleBlock)
     {
@@ -199,7 +217,7 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
         }
         healthKitStore.executeQuery(query)
     }
-
+/*
     // Retrieves the HealthKit samples for the given UUIDs, further filtering them according to the specified predicate.
     public func fetchSamplesByUUID(sampleType: HKSampleType, uuids: Set<NSUUID>, predicate: NSPredicate? = nil, limit: Int = noLimit,
                                    sortDescriptors: [NSSortDescriptor]? = [dateAsc], completion: HMSampleBlock)
@@ -287,7 +305,7 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
         }
 
         dispatch_group_notify(group, dispatch_get_main_queue()) {
-            self.mostRecentSamples = samples
+            mostRecentSamples = samples
             completion(samples: samples, error: nil)
         }
     }
@@ -295,6 +313,7 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
     // MARK: - Bulk generic retrieval
 
     // Fetches HealthKit samples for multiple types, using GCD to retrieve each type asynchronously and concurrently.
+     */
     public func fetchSamples(typesAndPredicates: [HKSampleType: NSPredicate?], completion: HMTypedSampleBlock)
     {
         let group = dispatch_group_create()
@@ -323,10 +342,10 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
             completion(samples: samplesByType, error: nil)
         }
     }
-
+/*
     // MARK: - Oldest sample retrieval
 
-    private func getOldestSampleForType(type: HKSampleType, completion: HKSampleType -> ()) {
+    public func getOldestSampleForType(type: HKSampleType, completion: HKSampleType -> ()) {
         let tname = type.displayText ?? type.identifier
         fetchSamplesOfType(type, predicate: nil, limit: 1) { (samples, error) in
             guard error == nil else {
@@ -341,7 +360,7 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
     }
 
     // MARK: - Anchor queries
-    private func fetchAnchoredSamplesOfType(type: HKSampleType, predicate: NSPredicate?, anchor: HKQueryAnchor?,
+    public func fetchAnchoredSamplesOfType(type: HKSampleType, predicate: NSPredicate?, anchor: HKQueryAnchor?,
                                             maxResults: Int, callContinuously: Bool, completion: HMAnchorSamplesBlock)
     {
         let hkAnchor = anchor ?? noAnchor
@@ -357,7 +376,7 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
     }
 
     // MARK: - Aggregate caching helpers.
-    private func getCacheDateKeyFormatter(aggUnit: NSCalendarUnit) -> NSDateFormatter {
+    public func getCacheDateKeyFormatter(aggUnit: NSCalendarUnit) -> NSDateFormatter {
         let formatter = NSDateFormatter()
 
         // Return the formatter based on the finest-grained unit.
@@ -383,12 +402,12 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
         let formatter = getCacheDateKeyFormatter(aggUnit)
         return "\(keyPrefix)_\(aggOp.rawValue)_\(formatter.stringFromDate(currentUnit))"
     }
-
+*/
     public func getPeriodCacheKey(keyPrefix: String, aggOp: HKStatisticsOptions, period: HealthManagerStatisticsRangeType) -> String {
         return "\(keyPrefix)_\(aggOp.rawValue)_\(period.rawValue)"
     }
 
-    private func getCacheExpiry(period: HealthManagerStatisticsRangeType) -> NSDate {
+    public func getCacheExpiry(period: HealthManagerStatisticsRangeType) -> NSDate {
         switch period {
         case .Week:
             return NSDate() + 2.minutes
@@ -404,7 +423,7 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
 
     // MARK: - Aggregate retrieval.
 
-    private func queryResultAsAggregates(aggOp: HKStatisticsOptions, result: AggregateQueryResult, error: NSError?,
+    public func queryResultAsAggregates(aggOp: HKStatisticsOptions, result: AggregateQueryResult, error: NSError?,
                                          completion: ([MCAggregateSample], NSError?) -> Void)
     {
         // MCAggregateSample.final is idempotent, thus this function can be called multiple times.
@@ -426,7 +445,7 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
     }
 
     // Convert an AggregateQueryResult value into an MCSample array, and fire the completion.
-    private func queryResultAsSamples(result: AggregateQueryResult, error: NSError?, completion: HMSampleBlock)
+    public func queryResultAsSamples(result: AggregateQueryResult, error: NSError?, completion: HMSampleBlock)
     {
         // MCAggregateSample.final is idempotent, thus this function can be called multiple times.
         let finalize: MCAggregateSample -> MCSample = { var agg = $0; agg.final(); return agg as MCSample }
@@ -445,7 +464,7 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
         }
     }
 
-    private func aggregateSamplesManually(sampleType: HKSampleType, aggOp: HKStatisticsOptions, samples: [MCSample]) -> MCAggregateSample {
+    public func aggregateSamplesManually(sampleType: HKSampleType, aggOp: HKStatisticsOptions, samples: [MCSample]) -> MCAggregateSample {
         if samples.count == 0 {
             return MCAggregateSample(value: 0.0, sampleType: sampleType, op: aggOp)
         }
@@ -456,7 +475,7 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
     }
 
     // Group-by the desired aggregation calendar unit, returning a dictionary of MCAggregateSamples.
-    private func aggregateByPeriod(aggUnit: NSCalendarUnit, aggOp: HKStatisticsOptions, samples: [MCSample]) -> [NSDate: MCAggregateSample] {
+    public func aggregateByPeriod(aggUnit: NSCalendarUnit, aggOp: HKStatisticsOptions, samples: [MCSample]) -> [NSDate: MCAggregateSample] {
         var byPeriod: [NSDate: MCAggregateSample] = [:]
         samples.forEach { sample in
             let periodStart = sample.startDate.startOf(aggUnit)
@@ -470,7 +489,7 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
         return byPeriod
     }
 
-    private func finalizePartialAggregation(aggUnit: NSCalendarUnit,
+    public func finalizePartialAggregation(aggUnit: NSCalendarUnit,
                                             aggOp: HKStatisticsOptions,
                                             result: AggregateQueryResult,
                                             error: NSError?,
@@ -486,7 +505,7 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
         }
     }
 
-    private func finalizePartialAggregationAsSamples(aggUnit: NSCalendarUnit,
+    public func finalizePartialAggregationAsSamples(aggUnit: NSCalendarUnit,
                                                      aggOp: HKStatisticsOptions,
                                                      result: AggregateQueryResult,
                                                      error: NSError?,
@@ -502,7 +521,7 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
         }
     }
 
-    private func coverAggregatePeriod<T>(tag: String, sampleType: HKSampleType, startDate: NSDate, endDate: NSDate,
+    public func coverAggregatePeriod<T>(tag: String, sampleType: HKSampleType, startDate: NSDate, endDate: NSDate,
                                       aggUnit: NSCalendarUnit, aggOp: HKStatisticsOptions,
                                       sparseAggs: [MCAggregateSample], withFinalization: Bool = false,
                                       transform: MCAggregateSample -> T)
@@ -533,7 +552,7 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
         return aggregates
     }
 
-    private func coverStatisticsPeriod<T>(tag: String, sampleType: HKSampleType, startDate: NSDate, endDate: NSDate,
+    public func coverStatisticsPeriod<T>(tag: String, sampleType: HKSampleType, startDate: NSDate, endDate: NSDate,
                                           aggUnit: NSCalendarUnit, aggOp: HKStatisticsOptions,
                                           sparseStats: [HKStatistics], transform: MCAggregateSample -> T)
                                           -> [T]
@@ -562,7 +581,7 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
 
     // Period-covering variants of the above helpers.
     // These ensure that there is a sample for every calendar unit contained within the given time period.
-    private func queryResultAsAggregatesForPeriod(sampleType: HKSampleType, startDate: NSDate, endDate: NSDate,
+    public func queryResultAsAggregatesForPeriod(sampleType: HKSampleType, startDate: NSDate, endDate: NSDate,
                                                   aggUnit: NSCalendarUnit, aggOp: HKStatisticsOptions,
                                                   result: AggregateQueryResult, error: NSError?,
                                                   completion: ([MCAggregateSample], NSError?) -> Void)
@@ -590,7 +609,7 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
         completion(aggregates, error)
     }
 
-    private func queryResultAsSamplesForPeriod(sampleType: HKSampleType, startDate: NSDate, endDate: NSDate,
+    public func queryResultAsSamplesForPeriod(sampleType: HKSampleType, startDate: NSDate, endDate: NSDate,
                                                aggUnit: NSCalendarUnit, aggOp: HKStatisticsOptions,
                                                result: AggregateQueryResult, error: NSError?, completion: HMSampleBlock)
     {
@@ -619,7 +638,7 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
     }
 
 
-    private func finalizePartialAggregationForPeriod(sampleType: HKSampleType, startDate: NSDate, endDate: NSDate,
+    public func finalizePartialAggregationForPeriod(sampleType: HKSampleType, startDate: NSDate, endDate: NSDate,
                                                      aggUnit: NSCalendarUnit, aggOp: HKStatisticsOptions,
                                                      result: AggregateQueryResult, error: NSError?,
                                                      completion: (([MCAggregateSample], NSError?) -> Void))
@@ -637,7 +656,7 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
         }
     }
 
-    private func finalizePartialAggregationAsSamplesForPeriod(sampleType: HKSampleType, startDate: NSDate, endDate: NSDate,
+    public func finalizePartialAggregationAsSamplesForPeriod(sampleType: HKSampleType, startDate: NSDate, endDate: NSDate,
                                                               aggUnit: NSCalendarUnit, aggOp: HKStatisticsOptions,
                                                               result: AggregateQueryResult, error: NSError?,
                                                               completion: HMSampleBlock)
@@ -991,7 +1010,7 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
         dispatch_group_notify(group, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0)) {
             guard !(results1 == nil || results2 == nil) else {
                 let desc = results1 == nil ? (results2 == nil ? "LHS and RHS" : "LHS") : "RHS"
-                let err = NSError(domain: HMErrorDomain, code: 1048576, userInfo: [NSLocalizedDescriptionKey: "Invalid \(desc) statistics"])
+                let err = NSError(domain: self.HMErrorDomain, code: 1048576, userInfo: [NSLocalizedDescriptionKey: "Invalid \(desc) statistics"])
                 completion([], [], err)
                 return
             }
@@ -1302,9 +1321,13 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
             let proxyType = sampleType.identifier == type ? sampleType : HKObjectType.quantityTypeForIdentifier(type)!
 
             if #available(iOS 9.3, *) {
-                if type == HKQuantityTypeIdentifierAppleExerciseTime {
-                    dispatch_group_leave(group)
-                    continue
+                if #available(watchOSApplicationExtension 2.2, *) {
+                    if type == HKQuantityTypeIdentifierAppleExerciseTime {
+                        dispatch_group_leave(group)
+                        continue
+                    }
+                } else {
+                    // Fallback on earlier versions
                 }
             }
 
@@ -1620,7 +1643,7 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
         dispatch_group_notify(group, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0)) {
             guard !(results1 == nil || results2 == nil) else {
                 let desc = results1 == nil ? (results2 == nil ? "LHS and RHS" : "LHS") : "RHS"
-                let err = NSError(domain: HMErrorDomain, code: 1048576, userInfo: [NSLocalizedDescriptionKey: "Invalid \(desc) statistics"])
+                let err = NSError(domain: self.HMErrorDomain, code: 1048576, userInfo: [NSLocalizedDescriptionKey: "Invalid \(desc) statistics"])
                 completion([], err)
                 return
             }
@@ -1694,7 +1717,7 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
     // MARK: - Removing samples from HealthKit
 
     // Due to HealthKit bug, taken from: https://gist.github.com/bendodson/c0f0a6a1f601dc4573ba
-    func deleteSamplesOfType(sampleType: HKSampleType, startDate: NSDate?, endDate: NSDate?, predicate: NSPredicate,
+    public func deleteSamplesOfType(sampleType: HKSampleType, startDate: NSDate?, endDate: NSDate?, predicate: NSPredicate,
                              withCompletion completion: (success: Bool, count: Int, error: NSError?) -> Void)
     {
         let predWithInterval =
@@ -1816,9 +1839,10 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
             self.aggregateCache.removeObjectForKey($0)
         }
     }
+    
 
     // MARK: - Observers
-    public func startBackgroundObserverForType(type: HKSampleType, maxResultsPerQuery: Int = Int(HKObjectQueryNoLimit),
+/*    public func startBackgroundObserverForType(type: HKSampleType, maxResultsPerQuery: Int = Int(HKObjectQueryNoLimit),
                                                getAnchorCallback: HKSampleType -> (Bool, HKQueryAnchor?, NSPredicate?),
                                                anchorQueryCallback: HMAnchorSamplesCBlock) -> Void
     {
@@ -1873,6 +1897,7 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
             completion(success, error)
         }
     }
+ 
 
     // MARK: - Chart queries
 
@@ -2037,10 +2062,10 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
         }
     }
 
-
+*/
 
     // MARK: - Apple Watch
-
+/*
     func connectWatch() {
         if WCSession.isSupported() {
             let session = WCSession.defaultSession()
@@ -2068,10 +2093,10 @@ public class MCcircadianQueries: NSObject, WCSessionDelegate {
             log.error(error)
         }
     }  
-}
+}*/
 
 // Helper struct for iterating over date ranges.
-struct DateRange : SequenceType {
+public struct DateRange : SequenceType {
 
     var calendar: NSCalendar = NSCalendar(calendarIdentifier: NSCalendarIdentifierGregorian)!
 
@@ -2089,15 +2114,15 @@ struct DateRange : SequenceType {
         self.stepValue = stepValue
     }
 
-    func generate() -> Generator {
+    public func generate() -> Generator {
         return Generator(range: self)
     }
 
-    struct Generator: GeneratorType {
+    public struct Generator: GeneratorType {
 
         var range: DateRange
 
-        mutating func next() -> NSDate? {
+        mutating public func next() -> NSDate? {
             if range.currentStep == 0 { range.currentStep += 1; return range.startDate }
             else {
                 if let nextDate = range.calendar.dateByAddingUnit(range.stepUnits, value: range.stepValue, toDate: range.startDate, options: NSCalendarOptions(rawValue: 0)) {
@@ -2113,5 +2138,6 @@ struct DateRange : SequenceType {
             }
         }
     }
+}
 }
 
