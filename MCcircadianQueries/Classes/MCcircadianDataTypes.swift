@@ -22,6 +22,8 @@ public protocol MCSample {
     var numeralValue : Double?       { get }
     var defaultUnit  : HKUnit?       { get }
     var hkType       : HKSampleType? { get }
+
+    func unitForSystem(metric: Bool) -> HKUnit?
 }
 
 @available(iOS 9.0, *)
@@ -49,6 +51,10 @@ public struct MCStatisticSample : MCSample {
         if ( statsOption.contains(.CumulativeSum) ) {
             self.numeralValue = statistic.sumQuantity()?.doubleValueForUnit(defaultUnit!)
         }
+    }
+
+    public func unitForSystem(metric: Bool) -> HKUnit? {
+        return statistic.unitForSystem(metric: metric)
     }
 }
 
@@ -125,6 +131,10 @@ public struct MCAggregateSample : MCSample {
         self.aggOp = aggOp
         self.runningAgg = runningAgg
         self.runningCnt = runningCnt
+    }
+
+    public func unitForSystem(metric: Bool) -> HKUnit? {
+        return hkType?.unitForSystem(metric: metric)
     }
 
     public mutating func rsum(sample: MCSample) {
@@ -400,6 +410,10 @@ public extension HKStatistics {
     public var defaultUnit: HKUnit? { return quantityType.defaultUnit }
 
     public var hkType: HKSampleType? { return quantityType }
+
+    public func unitForSystem(metric: Bool) -> HKUnit? {
+        return quantityType.unitForSystem(metric: metric)
+    }
 }
 
 /*
@@ -411,10 +425,7 @@ extension HKSample: MCSample { }
 @available(iOS 9.0, *)
 public extension HKSampleType {
 
-    public var defaultUnit: HKUnit? {
-//        let isMetric: Bool = UserManager.sharedManager.useMetricUnits()
-        let isMetric: Bool = true
-
+    public func unitForSystem(metric: Bool) -> HKUnit? {
         switch identifier {
         case HKCategoryTypeIdentifierSleepAnalysis:
             return HKUnit.hourUnit()
@@ -450,7 +461,7 @@ public extension HKSampleType {
             return HKUnit.percentUnit()
 
         case HKQuantityTypeIdentifierBodyMass:
-            return isMetric ? HKUnit.gramUnitWithMetricPrefix(.Kilo) : HKUnit.poundUnit()
+            return metric ? HKUnit.gramUnitWithMetricPrefix(.Kilo) : HKUnit.poundUnit()
 
         case HKQuantityTypeIdentifierBodyMassIndex:
             return HKUnit.countUnit()
@@ -576,7 +587,7 @@ public extension HKSampleType {
             return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
 
         case HKQuantityTypeIdentifierDistanceWalkingRunning:
-            return isMetric ? HKUnit.meterUnitWithMetricPrefix(HKMetricPrefix.Kilo) : HKUnit.mileUnit()
+            return metric ? HKUnit.meterUnitWithMetricPrefix(HKMetricPrefix.Kilo) : HKUnit.mileUnit()
 
         case HKQuantityTypeIdentifierElectrodermalActivity:
             return HKUnit.siemenUnitWithMetricPrefix(HKMetricPrefix.Micro)
@@ -591,13 +602,13 @@ public extension HKSampleType {
             return HKUnit.literUnit()
 
         case HKQuantityTypeIdentifierHeight:
-            return isMetric ? HKUnit.meterUnitWithMetricPrefix(HKMetricPrefix.Centi) : HKUnit.footUnit()
+            return metric ? HKUnit.meterUnitWithMetricPrefix(HKMetricPrefix.Centi) : HKUnit.footUnit()
 
         case HKQuantityTypeIdentifierInhalerUsage:
             return HKUnit.countUnit()
 
         case HKQuantityTypeIdentifierLeanBodyMass:
-            return isMetric ? HKUnit.gramUnitWithMetricPrefix(.Kilo) : HKUnit.poundUnit()
+            return metric ? HKUnit.gramUnitWithMetricPrefix(.Kilo) : HKUnit.poundUnit()
 
         case HKQuantityTypeIdentifierHeartRate:
             return HKUnit.countUnit().unitDividedByUnit(HKUnit.minuteUnit())
@@ -610,28 +621,32 @@ public extension HKSampleType {
 
         case HKQuantityTypeIdentifierOxygenSaturation:
             return HKUnit.percentUnit()
-
+            
         case HKQuantityTypeIdentifierPeakExpiratoryFlowRate:
             return HKUnit.literUnit().unitDividedByUnit(HKUnit.minuteUnit())
-
+            
         case HKQuantityTypeIdentifierPeripheralPerfusionIndex:
             return HKUnit.percentUnit()
-
+            
         case HKQuantityTypeIdentifierRespiratoryRate:
             return HKUnit.countUnit().unitDividedByUnit(HKUnit.minuteUnit())
-
+            
         case HKQuantityTypeIdentifierStepCount:
             return HKUnit.countUnit()
-
+            
         case HKQuantityTypeIdentifierUVExposure:
             return HKUnit.countUnit()
-
+            
         case HKWorkoutTypeIdentifier:
             return HKUnit.hourUnit()
-
+            
         default:
             return nil
         }
+    }
+
+    public var defaultUnit: HKUnit? {
+        return unitForSystem(metric: true)
     }
 
     // Units used by the MC webservice.
@@ -897,6 +912,10 @@ public extension HKSample {
     public var defaultUnit: HKUnit? { return sampleType.defaultUnit }
 
     public var hkType: HKSampleType? { return sampleType }
+
+    public func unitForSystem(metric: Bool) -> HKUnit? {
+        return sampleType.unitForSystem(metric: metric)
+    }
 }
 
 // Readable type description.
