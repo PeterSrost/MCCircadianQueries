@@ -1,9 +1,9 @@
-# MCcircadianQueries
+# MCCircadianQueries
 
-[![CI Status](http://img.shields.io/travis/twoolf/MCcircadianQueries.svg?style=flat)](https://travis-ci.org/twoolf/MCcircadianQueries)
-[![Version](https://img.shields.io/cocoapods/v/MCcircadianQueries.svg?style=flat)](http://cocoapods.org/pods/MCcircadianQueries)
-[![License](https://img.shields.io/cocoapods/l/MCcircadianQueries.svg?style=flat)](http://cocoapods.org/pods/MCcircadianQueries)
-[![Platform](https://img.shields.io/cocoapods/p/MCcircadianQueries.svg?style=flat)](http://cocoapods.org/pods/MCcircadianQueries)
+[![CI Status](http://img.shields.io/travis/twoolf/MCCircadianQueries.svg?style=flat)](https://travis-ci.org/twoolf/MCCircadianQueries)
+[![Version](https://img.shields.io/cocoapods/v/MCCircadianQueries.svg?style=flat)](http://cocoapods.org/pods/MCCircadianQueries)
+[![License](https://img.shields.io/cocoapods/l/MCCircadianQueries.svg?style=flat)](http://cocoapods.org/pods/MCCircadianQueries)
+[![Platform](https://img.shields.io/cocoapods/p/MCCircadianQueries.svg?style=flat)](http://cocoapods.org/pods/MCCircadianQueries)
 
 ## Example
 
@@ -13,11 +13,11 @@ To run the example project, clone the repo, and run `pod install` from the Examp
 
 ## Installation
 
-MCcircadianQueries is available through [CocoaPods](http://cocoapods.org). To install
+MCCircadianQueries is available through [CocoaPods](http://cocoapods.org). To install
 it, simply add the following line to your Podfile:
 
 ```ruby
-pod "MCcircadianQueries"
+pod "MCCircadianQueries"
 ```
 
 ## Author
@@ -26,4 +26,4 @@ twoolf, twoolf@jhu.edu
 
 ## License
 
-MCcircadianQueries is available under the MIT license. See the LICENSE file for more info.
+MCCircadianQueries is available under the MIT license. See the LICENSE file for more info.
