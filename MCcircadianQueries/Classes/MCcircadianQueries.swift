@@ -37,9 +37,9 @@ public enum AggregateQueryResult {
 
  */
 @available(iOS 9.0, *)
-public class MCcircadianQueries: NSObject {
+public class MCCircadianQueries: NSObject {
 
-    public static let sharedManager = MCcircadianQueries()
+    public static let sharedManager = MCCircadianQueries()
 
     lazy var healthKitStore: HKHealthStore = HKHealthStore()
     var aggregateCache: HMAggregateCache
