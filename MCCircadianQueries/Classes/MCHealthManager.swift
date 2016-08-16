@@ -4,15 +4,7 @@ import SwiftDate
 import AwesomeCache
 import SwiftyBeaver
 
-
-// Constants.
-public let refDate  = NSDate(timeIntervalSinceReferenceDate: 0)
-public let noAnchor = HKQueryAnchor(fromValue: Int(HKAnchoredObjectQueryNoAnchor))
-public let noLimit  = Int(HKObjectQueryNoLimit)
-public let dateAsc  = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
-public let dateDesc = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
-public let lastChartsDataCacheKey = "lastChartsDataCacheKey"
-
+// Typealiases
 public typealias HMAuthorizationBlock  = (success: Bool, error: NSError?) -> Void
 public typealias HMSampleBlock         = (samples: [MCSample], error: NSError?) -> Void
 public typealias HMTypedSampleBlock    = (samples: [HKSampleType: [MCSample]], error: NSError?) -> Void
@@ -31,6 +23,13 @@ public typealias HMAnchorSamplesCBlock = (added: [HKSample], deleted: [HKDeleted
 public typealias HMAggregateCache = Cache<MCAggregateArray>
 
 // Constants and enums.
+public let refDate  = NSDate(timeIntervalSinceReferenceDate: 0)
+public let noAnchor = HKQueryAnchor(fromValue: Int(HKAnchoredObjectQueryNoAnchor))
+public let noLimit  = Int(HKObjectQueryNoLimit)
+public let dateAsc  = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
+public let dateDesc = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
+public let lastChartsDataCacheKey = "lastChartsDataCacheKey"
+
 public let HMErrorDomain                        = "HMErrorDomain"
 public let HMSampleTypeIdentifierSleepDuration  = "HMSampleTypeIdentifierSleepDuration"
 
@@ -65,11 +64,12 @@ public class MCHealthManager: NSObject {
     public static let sharedManager = MCHealthManager()
 
     public lazy var healthKitStore: HKHealthStore = HKHealthStore()
-    public var mostRecentSamples = [HKSampleType: [MCSample]]()
+    public var mostRecentSamples: [HKSampleType: [MCSample]]
     public var aggregateCache: HMAggregateCache
 
     public override init() {
         do {
+            mostRecentSamples = [:]
             self.aggregateCache = try HMAggregateCache(name: "HMAggregateCache")
         } catch _ {
             fatalError("Unable to create HealthManager aggregate cache.")
