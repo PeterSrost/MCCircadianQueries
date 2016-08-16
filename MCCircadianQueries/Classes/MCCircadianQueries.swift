@@ -47,27 +47,19 @@ public class MCCircadianQueries: NSObject {
 
 
     public typealias HMAuthorizationBlock  = (success: Bool, error: NSError?) -> Void
-    @available(iOS 9.0, *)
     public typealias HMSampleBlock         = (samples: [MCSample], error: NSError?) -> Void
-    @available(iOS 9.0, *)
     public typealias HMTypedSampleBlock    = (samples: [HKSampleType: [MCSample]], error: NSError?) -> Void
     public typealias HMAggregateBlock      = (aggregates: AggregateQueryResult, error: NSError?) -> Void
-    @available(iOS 9.0, *)
     public typealias HMCorrelationBlock    = ([MCSample], [MCSample], NSError?) -> Void
 
     public typealias HMCircadianBlock          = (intervals: [(NSDate, CircadianEvent)], error: NSError?) -> Void
     public typealias HMCircadianAggregateBlock = (aggregates: [(NSDate, Double)], error: NSError?) -> Void
     public typealias HMCircadianCategoryBlock  = (categories: [Int:Double], error: NSError?) -> Void
-    @available(iOS 9.0, *)
     public typealias HMFastingCorrelationBlock = ([(NSDate, Double, MCSample)], NSError?) -> Void
 
-    @available(iOS 9.0, *)
     public typealias HMAnchorQueryBlock    = (HKAnchoredObjectQuery, [HKSample]?, [HKDeletedObject]?, HKQueryAnchor?, NSError?) -> Void
-    @available(iOS 9.0, *)
     public typealias HMAnchorSamplesBlock  = (added: [HKSample], deleted: [HKDeletedObject], newAnchor: HKQueryAnchor?, error: NSError?) -> Void
-    @available(iOS 9.0, *)
     public typealias HMAnchorSamplesCBlock = (added: [HKSample], deleted: [HKDeletedObject], newAnchor: HKQueryAnchor?, error: NSError?, completion: () -> Void) -> Void
-    @available(iOS 9.0, *)
     public typealias HMAggregateCache = Cache<MCAggregateArray>
 
     public let HMErrorDomain                        = "HMErrorDomain"
@@ -75,11 +67,7 @@ public class MCCircadianQueries: NSObject {
 
     public override init() {
         do {
-            if #available(iOS 9.0, *) {
-                self.aggregateCache = try HMAggregateCache(name: "HMAggregateCache")
-            } else {
-                self.aggregateCache = try HMAggregateCache(name: "HMAggregateCache")
-            }
+            self.aggregateCache = try HMAggregateCache(name: "HMAggregateCache")
         } catch _ {
             fatalError("Unable to create HealthManager aggregate cache.")
         }
@@ -226,7 +214,8 @@ public class MCCircadianQueries: NSObject {
     }
 
     // Fetches HealthKit samples for multiple types, using GCD to retrieve each type asynchronously and concurrently.
-    public func fetchMostRecentSamples(ofTypes types: [HKSampleType] = PreviewManager.previewSampleTypes, completion: HMTypedSampleBlock)
+    // TODO: create a wrapper in the HealthManager that uses the completion to populate mostRecentSamples
+    public func fetchMostRecentSamples(ofTypes types: [HKSampleType], completion: HMTypedSampleBlock)
     {
         let group = dispatch_group_create()
         var samples = [HKSampleType: [MCSample]]()
@@ -294,7 +283,6 @@ public class MCCircadianQueries: NSObject {
         }
 
         dispatch_group_notify(group, dispatch_get_main_queue()) {
-            mostRecentSamples = samples
             completion(samples: samples, error: nil)
         }
     }

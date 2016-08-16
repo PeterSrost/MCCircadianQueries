@@ -1,3 +1,13 @@
+import Foundation
+import HealthKit
+
+// Controls the features compiled into the app.
+public struct Deployment {
+    public static let sharedInstance = Deployment()
+
+    public let withDebugView : Bool = true
+}
+
 /*
  * HealthKit constants
  */
