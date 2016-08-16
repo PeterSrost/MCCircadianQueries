@@ -1,6 +1,0 @@
-use_frameworks!
-target 'MCcircadianQueries_Tests' do
-  pod 'MCcircadianQueries', :path => '../'
-  
-  
-end
