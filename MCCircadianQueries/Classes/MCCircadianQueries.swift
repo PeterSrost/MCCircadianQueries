@@ -4,17 +4,40 @@ import SwiftDate
 import AwesomeCache
 import SwiftyBeaver
 
-// Constants.
-private let refDate  = NSDate(timeIntervalSinceReferenceDate: 0)
-private let noLimit  = Int(HKObjectQueryNoLimit)
-private let dateAsc  = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
-private let dateDesc = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
-private let lastChartsDataCacheKey = "lastChartsDataCacheKey"
 
-let stWorkout = 0.0
-let stSleep = 0.33
-let stFast = 0.66
-let stEat = 1.0
+// Constants.
+public let refDate  = NSDate(timeIntervalSinceReferenceDate: 0)
+public let noAnchor = HKQueryAnchor(fromValue: Int(HKAnchoredObjectQueryNoAnchor))
+public let noLimit  = Int(HKObjectQueryNoLimit)
+public let dateAsc  = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
+public let dateDesc = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
+public let lastChartsDataCacheKey = "lastChartsDataCacheKey"
+
+public typealias HMAuthorizationBlock  = (success: Bool, error: NSError?) -> Void
+public typealias HMSampleBlock         = (samples: [MCSample], error: NSError?) -> Void
+public typealias HMTypedSampleBlock    = (samples: [HKSampleType: [MCSample]], error: NSError?) -> Void
+public typealias HMAggregateBlock      = (aggregates: AggregateQueryResult, error: NSError?) -> Void
+public typealias HMCorrelationBlock    = ([MCSample], [MCSample], NSError?) -> Void
+
+public typealias HMCircadianBlock          = (intervals: [(NSDate, CircadianEvent)], error: NSError?) -> Void
+public typealias HMCircadianAggregateBlock = (aggregates: [(NSDate, Double)], error: NSError?) -> Void
+public typealias HMCircadianCategoryBlock  = (categories: [Int:Double], error: NSError?) -> Void
+public typealias HMFastingCorrelationBlock = ([(NSDate, Double, MCSample)], NSError?) -> Void
+
+public typealias HMAnchorQueryBlock    = (HKAnchoredObjectQuery, [HKSample]?, [HKDeletedObject]?, HKQueryAnchor?, NSError?) -> Void
+public typealias HMAnchorSamplesBlock  = (added: [HKSample], deleted: [HKDeletedObject], newAnchor: HKQueryAnchor?, error: NSError?) -> Void
+public typealias HMAnchorSamplesCBlock = (added: [HKSample], deleted: [HKDeletedObject], newAnchor: HKQueryAnchor?, error: NSError?, completion: () -> Void) -> Void
+
+public typealias HMAggregateCache = Cache<MCAggregateArray>
+
+// Constants and enums.
+public let HMErrorDomain                        = "HMErrorDomain"
+public let HMSampleTypeIdentifierSleepDuration  = "HMSampleTypeIdentifierSleepDuration"
+
+public let stWorkout = 0.0
+public let stSleep = 0.33
+public let stFast = 0.66
+public let stEat = 1.0
 
 // Enums
 public enum HealthManagerStatisticsRangeType : Int {
@@ -41,29 +64,10 @@ public class MCCircadianQueries: NSObject {
 
     public static let sharedManager = MCCircadianQueries()
 
-    lazy var healthKitStore: HKHealthStore = HKHealthStore()
+    public lazy var healthKitStore: HKHealthStore = HKHealthStore()
+    public var mostRecentSamples = [HKSampleType: [MCSample]]()
+
     var aggregateCache: HMAggregateCache
-    var observerQueries: [HKQuery] = []
-
-
-    public typealias HMAuthorizationBlock  = (success: Bool, error: NSError?) -> Void
-    public typealias HMSampleBlock         = (samples: [MCSample], error: NSError?) -> Void
-    public typealias HMTypedSampleBlock    = (samples: [HKSampleType: [MCSample]], error: NSError?) -> Void
-    public typealias HMAggregateBlock      = (aggregates: AggregateQueryResult, error: NSError?) -> Void
-    public typealias HMCorrelationBlock    = ([MCSample], [MCSample], NSError?) -> Void
-
-    public typealias HMCircadianBlock          = (intervals: [(NSDate, CircadianEvent)], error: NSError?) -> Void
-    public typealias HMCircadianAggregateBlock = (aggregates: [(NSDate, Double)], error: NSError?) -> Void
-    public typealias HMCircadianCategoryBlock  = (categories: [Int:Double], error: NSError?) -> Void
-    public typealias HMFastingCorrelationBlock = ([(NSDate, Double, MCSample)], NSError?) -> Void
-
-    public typealias HMAnchorQueryBlock    = (HKAnchoredObjectQuery, [HKSample]?, [HKDeletedObject]?, HKQueryAnchor?, NSError?) -> Void
-    public typealias HMAnchorSamplesBlock  = (added: [HKSample], deleted: [HKDeletedObject], newAnchor: HKQueryAnchor?, error: NSError?) -> Void
-    public typealias HMAnchorSamplesCBlock = (added: [HKSample], deleted: [HKDeletedObject], newAnchor: HKQueryAnchor?, error: NSError?, completion: () -> Void) -> Void
-    public typealias HMAggregateCache = Cache<MCAggregateArray>
-
-    public let HMErrorDomain                        = "HMErrorDomain"
-    public let HMSampleTypeIdentifierSleepDuration  = "HMSampleTypeIdentifierSleepDuration"
 
     public override init() {
         do {
@@ -74,8 +78,8 @@ public class MCCircadianQueries: NSObject {
         super.init()
     }
 
-
     public func reset() {
+        mostRecentSamples = [:]
         aggregateCache.removeAllObjects()
     }
 
@@ -159,6 +163,7 @@ public class MCCircadianQueries: NSObject {
     }
 
     // MARK: - Sample testing
+
     public func isGeneratedSample(sample: HKSample) -> Bool {
         if let unwrappedMetadata = sample.metadata, _ = unwrappedMetadata[HMConstants.sharedInstance.generatedSampleKey] {
             return true
@@ -214,7 +219,6 @@ public class MCCircadianQueries: NSObject {
     }
 
     // Fetches HealthKit samples for multiple types, using GCD to retrieve each type asynchronously and concurrently.
-    // TODO: create a wrapper in the HealthManager that uses the completion to populate mostRecentSamples
     public func fetchMostRecentSamples(ofTypes types: [HKSampleType], completion: HMTypedSampleBlock)
     {
         let group = dispatch_group_create()
@@ -283,6 +287,7 @@ public class MCCircadianQueries: NSObject {
         }
 
         dispatch_group_notify(group, dispatch_get_main_queue()) {
+            self.mostRecentSamples = samples
             completion(samples: samples, error: nil)
         }
     }
@@ -1598,6 +1603,17 @@ public class MCCircadianQueries: NSObject {
         }
     }
 
+    // MARK: - Miscellaneous queries
+    public func getOldestSampleDateForType(type: HKSampleType, completion: NSDate? -> ()) {
+        fetchSamplesOfType(type, predicate: nil, limit: 1) { (samples, error) in
+            guard error == nil else {
+                log.error("Could not get oldest sample for: \(type.displayText ?? type.identifier)")
+                completion(nil)
+                return
+            }
+            completion(samples.isEmpty ? NSDate() : samples[0].startDate)
+        }
+    }
 
     // MARK: - Writing into HealthKit
     public func saveSample(sample: HKSample, completion: (Bool, NSError?) -> Void)
