@@ -60,14 +60,13 @@ public enum AggregateQueryResult {
 
  */
 @available(iOS 9.0, *)
-public class MCCircadianQueries: NSObject {
+public class MCHealthManager: NSObject {
 
-    public static let sharedManager = MCCircadianQueries()
+    public static let sharedManager = MCHealthManager()
 
     public lazy var healthKitStore: HKHealthStore = HKHealthStore()
     public var mostRecentSamples = [HKSampleType: [MCSample]]()
-
-    var aggregateCache: HMAggregateCache
+    public var aggregateCache: HMAggregateCache
 
     public override init() {
         do {
@@ -960,7 +959,7 @@ public class MCCircadianQueries: NSObject {
         dispatch_group_notify(group, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0)) {
             guard !(results1 == nil || results2 == nil) else {
                 let desc = results1 == nil ? (results2 == nil ? "LHS and RHS" : "LHS") : "RHS"
-                let err = NSError(domain: self.HMErrorDomain, code: 1048576, userInfo: [NSLocalizedDescriptionKey: "Invalid \(desc) statistics"])
+                let err = NSError(domain: HMErrorDomain, code: 1048576, userInfo: [NSLocalizedDescriptionKey: "Invalid \(desc) statistics"])
                 completion([], [], err)
                 return
             }
@@ -1593,7 +1592,7 @@ public class MCCircadianQueries: NSObject {
         dispatch_group_notify(group, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0)) {
             guard !(results1 == nil || results2 == nil) else {
                 let desc = results1 == nil ? (results2 == nil ? "LHS and RHS" : "LHS") : "RHS"
-                let err = NSError(domain: self.HMErrorDomain, code: 1048576, userInfo: [NSLocalizedDescriptionKey: "Invalid \(desc) statistics"])
+                let err = NSError(domain: HMErrorDomain, code: 1048576, userInfo: [NSLocalizedDescriptionKey: "Invalid \(desc) statistics"])
                 completion([], err)
                 return
             }
