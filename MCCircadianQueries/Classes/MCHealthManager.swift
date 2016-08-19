@@ -5,11 +5,11 @@ import AwesomeCache
 import SwiftyBeaver
 
 // Typealiases
-public typealias HMAuthorizationBlock  = (success: Bool, error: NSError?) -> Void
-public typealias HMSampleBlock         = (samples: [MCSample], error: NSError?) -> Void
-public typealias HMTypedSampleBlock    = (samples: [HKSampleType: [MCSample]], error: NSError?) -> Void
-public typealias HMAggregateBlock      = (aggregates: AggregateQueryResult, error: NSError?) -> Void
-public typealias HMCorrelationBlock    = ([MCSample], [MCSample], NSError?) -> Void
+public typealias HMAuthorizationBlock   = (success: Bool, error: NSError?) -> Void
+public typealias HMSampleBlock          = (samples: [MCSample], error: NSError?) -> Void
+public typealias HMTMeasureSamplesBlock = (samples: [MeasureIndex: [MCSample]], error: NSError?) -> Void
+public typealias HMAggregateBlock       = (aggregates: AggregateQueryResult, error: NSError?) -> Void
+public typealias HMCorrelationBlock     = ([MCSample], [MCSample], NSError?) -> Void
 
 public typealias HMCircadianBlock          = (intervals: [(NSDate, CircadianEvent)], error: NSError?) -> Void
 public typealias HMCircadianAggregateBlock = (aggregates: [(NSDate, Double)], error: NSError?) -> Void
@@ -52,6 +52,102 @@ public enum AggregateQueryResult {
     case None
 }
 
+public enum MeasureIndex : Hashable, Equatable {
+    case MCMType(HKObjectType)
+    case MCMWorkout(HKWorkoutActivityType)
+
+    public var measureType: HKObjectType {
+        get {
+            switch self {
+            case .MCMType(let t):
+                return t
+            case .MCMWorkout(_):
+                return HKObjectType.workoutType()
+            }
+        }
+    }
+
+    public var measureActivity: HKWorkoutActivityType? {
+        get {
+            switch self {
+            case .MCMType(_):
+                return nil
+            case .MCMWorkout(let a):
+                return a
+            }
+        }
+    }
+
+    public var hashValue: Int {
+        get {
+            switch self {
+            case .MCMType(let t):
+                return t.hashValue
+            case .MCMWorkout(let w):
+                return HKObjectType.workoutType().hashValue + w.hashValue
+            }
+        }
+    }
+
+    public static func encode(index: MeasureIndex) -> MeasureIndexCoding {
+        return MeasureIndexCoding(index: index)
+    }
+
+    public static func decode(indexEncoding: MeasureIndexCoding) -> MeasureIndex? {
+        return indexEncoding.index
+    }
+}
+
+public func ==(lhs: MeasureIndex, rhs: MeasureIndex) -> Bool {
+    switch (lhs, rhs) {
+    case (.MCMType(let lt), .MCMType(let rt)):
+        return lt == rt
+    case (.MCMWorkout(let lw), .MCMWorkout(let rw)):
+        return lw == rw
+    default:
+        return false
+    }
+}
+
+public extension MeasureIndex {
+    public class MeasureIndexCoding: NSObject, NSCoding {
+        var index: MeasureIndex?
+
+        init(index: MeasureIndex) {
+            self.index = index
+            super.init()
+        }
+
+        required public init?(coder aDecoder: NSCoder) {
+            let tag = aDecoder.decodeIntegerForKey("tag")
+            switch tag {
+            case 0:
+                guard let type = aDecoder.decodeObjectForKey("type") as? HKObjectType else { log.error("Failed to rebuild MeasureIndex type"); index = nil; super.init(); return nil }
+
+                index = .MCMType(type)
+
+            default:
+                guard let activity = aDecoder.decodeObjectForKey("activity") as? NSNumber else { log.error("Failed to rebuild MeasureIndex activity"); index = nil; super.init(); return nil }
+
+                index = .MCMWorkout(HKWorkoutActivityType(rawValue: activity.unsignedIntegerValue)!)
+            }
+
+            super.init()
+        }
+
+        public func encodeWithCoder(aCoder: NSCoder) {
+            switch index! {
+            case .MCMType(let t):
+                aCoder.encodeInteger(0, forKey: "tag")
+                aCoder.encodeObject(t, forKey: "type")
+
+            case .MCMWorkout(let a):
+                aCoder.encodeInteger(1, forKey: "tag")
+                aCoder.encodeObject(NSNumber(unsignedInteger: a.rawValue), forKey: "activity")
+            }
+        }
+    }
+}
 
 
 /**
@@ -218,31 +314,31 @@ public class MCHealthManager: NSObject {
     }
 
     // Fetches HealthKit samples for multiple types, using GCD to retrieve each type asynchronously and concurrently.
-    public func fetchMostRecentSamples(ofTypes types: [HKSampleType], completion: HMTypedSampleBlock)
+    public func fetchMostRecentSamples(ofMeasures measures: [MeasureIndex], completion: HMTypedSampleBlock)
     {
         let group = dispatch_group_create()
-        var samples = [HKSampleType: [MCSample]]()
+        var samples = [MeasureIndex: [MCSample]]()
 
-        let updateSamples : (HKSampleType, [MCSample], NSError?) -> Void = { (type, statistics, error) in
+        let updateSamples : (MeasureIndex, [MCSample], NSError?) -> Void = { (measure, statistics, error) in
             guard error == nil else {
-                log.error("Could not fetch recent samples for \(type.displayText): \(error)")
+                log.error("Could not fetch recent samples for \(measure.measureType.displayText) \(measure.measureActivity ?? ""): \(error)")
                 dispatch_group_leave(group)
                 return
             }
             guard statistics.isEmpty == false else {
-                log.warning("No recent samples available for \(type.displayText)")
+                log.warning("No recent samples available for \(measure.measureType.displayText) \(measure.measureActivity ?? "")")
                 dispatch_group_leave(group)
                 return
             }
-            samples[type] = statistics
+            samples[measure] = statistics
             dispatch_group_leave(group)
         }
 
-        let onStatistic : HKSampleType -> Void = { type in
+        let onStatistic : MeasureIndex -> Void = { measure in
             // First run a pilot query to retrieve the acquisition date of the last sample.
-            self.fetchMostRecentSample(type) { (samples, error) in
+            self.fetchMostRecentSample(measure.measureType) { (samples, error) in
                 guard error == nil else {
-                    log.error("Could not fetch recent samples for \(type.displayText): \(error)")
+                    log.error("Could not fetch recent samples for \(measure.measureType.displayText): \(error)")
                     dispatch_group_leave(group)
                     return
                 }
@@ -251,37 +347,37 @@ public class MCHealthManager: NSObject {
                     // Then run a statistics query to aggregate relative to the recent sample date.
                     let recentWindowStartDate = lastSample.startDate - 4.days
                     let predicate = HKSampleQuery.predicateForSamplesWithStartDate(recentWindowStartDate, endDate: nil, options: .None)
-                    self.fetchStatisticsOfType(type, predicate: predicate) { (statistics, error) in
-                        updateSamples(type, statistics, error)
+                    self.fetchStatisticsOfType(measure.measureType, predicate: predicate) { (statistics, error) in
+                        updateSamples(measure, statistics, error)
                     }
                 } else {
-                    updateSamples(type, samples, error)
+                    updateSamples(measure, samples, error)
                 }
             }
         }
 
-        let onCatOrCorr = { type in
-            self.fetchMostRecentSample(type) { (statistics, error) in
-                updateSamples(type, statistics, error)
+        let onCatOrCorr = { measure in
+            self.fetchMostRecentSample(measure.measureType) { (statistics, error) in
+                updateSamples(measure, statistics, error)
             }
         }
 
-        let onWorkout = { type in
+        // TODO: retrieve samples by activity.
+        let onWorkout = { measure in
             self.fetchPreparationAndRecoveryWorkout(false) { (statistics, error) in
-                updateSamples(type, statistics, error)
+                updateSamples(measure, statistics, error)
             }
         }
 
-        types.forEach { (type) -> () in
+        measures.forEach { (measure) -> () in
             dispatch_group_enter(group)
-            if (type.identifier == HKCategoryTypeIdentifierSleepAnalysis) {
-                onCatOrCorr(type)
-            } else if (type.identifier == HKCorrelationTypeIdentifierBloodPressure) {
-                onCatOrCorr(type)
-            } else if (type.identifier == HKWorkoutTypeIdentifier) {
-                onWorkout(type)
+            let id = measure.measureType.identifier
+            if (id == HKCategoryTypeIdentifierSleepAnalysis || id == HKCorrelationTypeIdentifierBloodPressure) {
+                onCatOrCorr(measure)
+            } else if (id == HKWorkoutTypeIdentifier) {
+                onWorkout(measure)
             } else {
-                onStatistic(type)
+                onStatistic(measure)
             }
         }
 
