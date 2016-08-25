@@ -1195,7 +1195,7 @@ public class MCHealthManager: NSObject {
         let initial : Accum = (true, nil, [:])
         let final : (Accum -> [(NSDate, Double)]) = { acc in
             let eatingTimesByDay = acc.2
-            return eatingTimesByDay.map { return ($0.0, $0.1 / 3600.0) }.sort { (a,b) in return a.0 < b.0 }
+            return eatingTimesByDay.sort { (a,b) in return a.0 < b.0 }
         }
 
         fetchAggregatedCircadianEvents(nil, aggregator: aggregator, initialAccum: initial, initialResult: [], final: final, completion: completion)
@@ -1203,7 +1203,7 @@ public class MCHealthManager: NSObject {
 
     // Compute max fasting times per day by filtering and aggregating over everything other than meal events.
     // This stitches fasting events together if they are sequential (i.e., one ends while the other starts).
-    public func fetchMaxFastingTimes(completion: HMCircadianAggregateBlock)
+    public func fetchMaxFastingTimes(startDate: NSDate? = nil, endDate: NSDate? = nil, completion: HMCircadianAggregateBlock)
     {
         // Accumulator:
         // i. boolean indicating whether the current endpoint starts an interval.
@@ -1248,10 +1248,14 @@ public class MCHealthManager: NSObject {
                     byDay.updateValue(currentMax >= duration ? currentMax : duration, forKey: fastStartDay)
                 }
             }
-            return byDay.map { return ($0.0, $0.1 / 3600.0) }.sort { (a,b) in return a.0 < b.0 }
+            return byDay.sort { (a,b) in return a.0 < b.0 }
         }
 
-        fetchAggregatedCircadianEvents(predicate, aggregator: aggregator, initialAccum: initial, initialResult: [], final: final, completion: completion)
+        if startDate == nil && endDate == nil {
+            fetchAggregatedCircadianEvents(predicate, aggregator: aggregator, initialAccum: initial, initialResult: [], final: final, completion: completion)
+        } else {
+            fetchAggregatedCircadianEvents(startDate ?? NSDate.distantPast(), endDate: endDate ?? NSDate(), predicate: predicate, aggregator: aggregator, initialAccum: initial, initialResult: [], final: final, completion: completion)
+        }
     }
 
     // Computes the number of days in the last year that have at least one sample, for the given types.
