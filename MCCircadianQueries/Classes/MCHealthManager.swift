@@ -1273,17 +1273,6 @@ public class MCHealthManager: NSObject {
             let type = sampleType.identifier == HKCorrelationTypeIdentifierBloodPressure ? HKQuantityTypeIdentifierBloodPressureSystolic : sampleType.identifier
             let proxyType = sampleType.identifier == type ? sampleType : HKObjectType.quantityTypeForIdentifier(type)!
 
-            if #available(iOS 9.3, *) {
-                if #available(watchOSApplicationExtension 2.2, *) {
-                    if type == HKQuantityTypeIdentifierAppleExerciseTime {
-                        dispatch_group_leave(group)
-                        continue
-                    }
-                } else {
-                    // Fallback on earlier versions
-                }
-            }
-
             let aggOp = proxyType.aggregationOptions
             let keyPrefix = "\(type)_cd"
             let key = getPeriodCacheKey(keyPrefix, aggOp: aggOp, period: period)
@@ -1526,7 +1515,6 @@ public class MCHealthManager: NSObject {
             default:
                 return false
             }
-
         }
 
         let group : (NSDate, CircadianEvent) -> Int = { e in
