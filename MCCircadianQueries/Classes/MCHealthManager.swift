@@ -21,8 +21,12 @@ public typealias HMAnchorSamplesBlock  = (added: [HKSample], deleted: [HKDeleted
 public typealias HMAnchorSamplesCBlock = (added: [HKSample], deleted: [HKDeletedObject], newAnchor: HKQueryAnchor?, error: NSError?, completion: () -> Void) -> Void
 
 public typealias HMAggregateCache = Cache<MCAggregateArray>
+public typealias HMCircadianCache = Cache<MCCircadianEventArray>
 
 // Constants and enums.
+public let HMDidUpdateCircadianEvents = "HMDidUpdateCircadianEvents"
+public let HMCircadianEventsDateUpdateKey = "HMCircadianEventsDateUpdateKey"
+
 public let refDate  = NSDate(timeIntervalSinceReferenceDate: 0)
 public let noAnchor = HKQueryAnchor(fromValue: Int(HKAnchoredObjectQueryNoAnchor))
 public let noLimit  = Int(HKObjectQueryNoLimit)
@@ -65,14 +69,18 @@ public class MCHealthManager: NSObject {
 
     public lazy var healthKitStore: HKHealthStore = HKHealthStore()
     public var mostRecentSamples: [HKSampleType: [MCSample]]
+
+    // Query Caches
     public var aggregateCache: HMAggregateCache
+    public var circadianCache: HMCircadianCache
 
     public override init() {
         do {
             mostRecentSamples = [:]
             self.aggregateCache = try HMAggregateCache(name: "HMAggregateCache")
+            self.circadianCache = try HMCircadianCache(name: "HMCircadianCache")
         } catch _ {
-            fatalError("Unable to create HealthManager aggregate cache.")
+            fatalError("Unable to create HealthManager caches.")
         }
         super.init()
     }
@@ -80,6 +88,7 @@ public class MCHealthManager: NSObject {
     public func reset() {
         mostRecentSamples = [:]
         aggregateCache.removeAllObjects()
+        circadianCache.removeAllObjects()
     }
 
     // Not guaranteed to be on main thread
@@ -980,6 +989,18 @@ public class MCHealthManager: NSObject {
         fetchSamplesOfType(HKWorkoutType.workoutType(), predicate: predicate, limit: noLimit, sortDescriptors: [sortDescriptor], completion: completion)
     }
 
+    private func decomposeCircadianDateRangeForCaching(startDate: NSDate, endDate: NSDate) -> (Bool, [NSDate]) {
+        let recent = NSDate() - 1.months
+        // For now, we only use caching/decomposition for recent queries, that access less than 2 weeks of data.
+        if recent < startDate && recent < endDate && endDate < startDate + 2.weeks {
+            let dateRange = DateRange(startDate: startDate.startOf(.Day), endDate: endDate.endOf(.Day), stepUnits: .Day)
+            let dates = dateRange.map({ $0 }) + [endDate.endOf(.Day)]
+            log.info("Decomposing circadian query \(startDate) / \(endDate) to \(dates)")
+            return (true, dates)
+        }
+        return (false, [startDate, endDate])
+    }
+
     // Invokes a callback on circadian event intervals.
     // This is an array of event endpoints where an endpoint
     // is a pair of NSDate and metabolic state (i.e.,
@@ -993,73 +1014,165 @@ public class MCHealthManager: NSObject {
     //
     // [('2016-01-01 20:00', .Meal), ('2016-01-01 20:45', .Meal), ('2016-01-01 23:00', .Sleep), ('2016-01-02 07:00', .Sleep)]
     //
-    public func fetchCircadianEventIntervals(startDate: NSDate = 1.days.ago,
-                                             endDate: NSDate = NSDate(),
-                                             completion: HMCircadianBlock)
+    public func fetchCircadianEventIntervals(startDate: NSDate = 1.days.ago, endDate: NSDate = NSDate(), completion: HMCircadianBlock)
     {
         typealias Event = (NSDate, CircadianEvent)
         typealias IEvent = (Double, CircadianEvent)
 
         let sleepTy = HKObjectType.categoryTypeForIdentifier(HKCategoryTypeIdentifierSleepAnalysis)!
         let workoutTy = HKWorkoutType.workoutType()
-        let datePredicate = HKQuery.predicateForSamplesWithStartDate(startDate, endDate: endDate, options: .None)
-        let typesAndPredicates = [sleepTy: datePredicate, workoutTy: datePredicate]
 
-        // Fetch HealthKit sleep and workout samples matching the requested data range.
-        // Note the workout samples include meal events since we encode these as preparation
-        // and recovery workouts.
-        // We create event endpoints from the resulting samples.
-        fetchSamples(typesAndPredicates) { (events, error) -> Void in
-            guard error == nil && !events.isEmpty else {
-                completion(intervals: [], error: error)
-                return
-            }
+        // Note: we assume the decomposition returns sorted dates.
+        let (useCaching, decomposedQueries) = decomposeCircadianDateRangeForCaching(startDate, endDate: endDate)
 
-            // Fetch samples returns a dictionary that map a HKSampleType to an array of HKSamples.
-            // We use a flatmap operation to concatenate all samples across different HKSampleTypes.
-            //
-            // We truncate the start of event intervals to the startDate parameter.
-            //
-            let extendedEvents = events.flatMap { (ty,vals) -> [Event]? in
-                switch ty {
-                case is HKWorkoutType:
-                    // Workout samples may be meal or exercise events.
-                    // We turn each event into an array of two elements, indicating
-                    // the start and end of the event.
-                    return vals.flatMap { s -> [Event] in
-                        let st = s.startDate < startDate ? startDate : s.startDate
-                        let en = s.endDate
-                        guard let v = s as? HKWorkout else { return [] }
-                        switch v.workoutActivityType {
-                        case HKWorkoutActivityType.PreparationAndRecovery:
-                            // TODO: check for "Meal Type" key in metadata to distinguish from other P&R events
-                            // (e.g., added from other apps)
-                            return [(st, .Meal), (en, .Meal)]
+        let queryGroup = dispatch_group_create()
+        var queryResults: [Int: [Event]] = [:]
+        var queryErrors: [NSError?] = []
+
+        let globalQueryStart = NSDate()
+        log.info("MCHM FCEI global query start")
+
+        let cacheExpiryDate = NSDate() + 1.months
+
+        for queryIndex in 1..<decomposedQueries.count {
+            dispatch_group_enter(queryGroup)
+            let startDate = decomposedQueries[queryIndex-1]
+            let endDate = decomposedQueries[queryIndex]
+
+            let datePredicate = HKQuery.predicateForSamplesWithStartDate(startDate, endDate: endDate, options: .None)
+            let typesAndPredicates = [sleepTy: datePredicate, workoutTy: datePredicate]
+
+            // Fetch HealthKit sleep and workout samples matching the requested data range.
+            // Note the workout samples include meal events since we encode these as preparation
+            // and recovery workouts.
+            // We create event endpoints from the resulting samples.
+            let queryStart = NSDate()
+            log.info("MCHM FCEI query \(queryIndex) start")
+
+            let runQuery : (([Event], NSError?) -> Void) -> Void = { runCompletion in
+                self.fetchSamples(typesAndPredicates) { (events, error) -> Void in
+                    log.info("MCHM FCEI query \(queryIndex) time: \(NSDate().timeIntervalSinceReferenceDate - queryStart.timeIntervalSinceReferenceDate)")
+                    guard error == nil && !events.isEmpty else {
+                        runCompletion([], error)
+                        return
+                    }
+
+                    // Fetch samples returns a dictionary that map a HKSampleType to an array of HKSamples.
+                    // We use a flatmap operation to concatenate all samples across different HKSampleTypes.
+                    //
+                    // We truncate the start of event intervals to the startDate parameter.
+                    //
+                    let extendedEvents = events.flatMap { (ty,vals) -> [Event]? in
+                        switch ty {
+                        case is HKWorkoutType:
+                            // Workout samples may be meal or exercise events.
+                            // We turn each event into an array of two elements, indicating
+                            // the start and end of the event.
+                            return vals.flatMap { s -> [Event] in
+                                let st = s.startDate
+                                let en = s.endDate
+                                guard let v = s as? HKWorkout else { return [] }
+                                switch v.workoutActivityType {
+                                case HKWorkoutActivityType.PreparationAndRecovery:
+                                    if let meta = v.metadata, _ = meta["Meal Type"] {
+                                        return [(st, .Meal), (en, .Meal)]
+                                    }
+                                    return []
+
+                                default:
+                                    return [(st, .Exercise), (en, .Exercise)]
+                                }
+                            }
+
+                        case is HKCategoryType:
+                            // Convert sleep samples into event endpoints.
+                            guard ty.identifier == HKCategoryTypeIdentifierSleepAnalysis else {
+                                return nil
+                            }
+                            return vals.flatMap { s -> [Event] in return [(s.startDate, .Sleep), (s.endDate, .Sleep)] }
+
                         default:
-                            return [(st, .Exercise), (en, .Exercise)]
+                            log.error("Unexpected type \(ty.identifier) while fetching circadian event intervals")
+                            return nil
                         }
                     }
-
-                case is HKCategoryType:
-                    // Convert sleep samples into event endpoints.
-                    guard ty.identifier == HKCategoryTypeIdentifierSleepAnalysis else {
-                        return nil
-                    }
-                    return vals.flatMap { s -> [Event] in
-                        let st = s.startDate < startDate ? startDate : s.startDate
-                        let en = s.endDate
-                        return [(st, .Sleep), (en, .Sleep)]
-                    }
-
-                default:
-                    log.error("Unexpected type \(ty.identifier) while fetching circadian event intervals")
-                    return nil
+                    
+                    // Sort event endpoints by their occurrence time.
+                    // This sorts across all event types (sleep, eat, exercise).
+                    runCompletion(extendedEvents.flatten().sort { (a,b) in return a.0 < b.0 }, error)
                 }
             }
 
-            // Sort event endpoints by their occurrence time.
-            // This sorts across all event types (sleep, eat, exercise).
-            let sortedEvents = extendedEvents.flatten().sort { (a,b) in return a.0 < b.0 }
+            if useCaching {
+                let cacheKey = startDate.startOf(.Day).toString()!
+                log.info("MCHM FCEI query \(queryIndex) using caching with key \(cacheKey)")
+
+                circadianCache.setObjectForKey(cacheKey, cacheBlock: { success, failure in
+                    runQuery { (events, error) in
+                        guard error == nil else { failure(error); return }
+                        success(MCCircadianEventArray(events: events), .Date(cacheExpiryDate))
+                    }
+                }, completion: { object, isLoadedFromCache, error in
+                    guard error == nil else {
+                        log.error(error)
+                        queryErrors.append(error)
+                        dispatch_group_leave(queryGroup)
+                        return
+                    }
+
+                    queryResults[queryIndex] = object?.events ?? []
+                    log.info("MCHM FCEI \(queryIndex) post sort time: \(NSDate().timeIntervalSinceReferenceDate - queryStart.timeIntervalSinceReferenceDate)")
+                    dispatch_group_leave(queryGroup)
+                })
+            } else {
+                runQuery { (events, error) in
+                    guard error == nil else {
+                        queryErrors.append(error)
+                        dispatch_group_leave(queryGroup)
+                        return
+                    }
+
+                    queryResults[queryIndex] = events
+                    log.info("MCHM FCEI \(queryIndex) post sort time: \(NSDate().timeIntervalSinceReferenceDate - queryStart.timeIntervalSinceReferenceDate)")
+                    dispatch_group_leave(queryGroup)
+                }
+            }
+        }
+
+        dispatch_group_notify(queryGroup, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0)) {
+            guard queryErrors.isEmpty else {
+                completion(intervals: [], error: queryErrors.first!)
+                return
+            }
+
+            var sortedEvents: [Event] = []
+            var mergeError: NSError! = nil
+            for i in 1..<decomposedQueries.count {
+                if let events = queryResults[i] {
+                    let cleanedEvents: [Event] = events.enumerate().flatMap { (index, eventEdge) in
+                        if index == 0 {
+                            if events[index+1].0 < startDate { return nil }
+                            else if endDate <= eventEdge.0 { return nil }
+                            else if eventEdge.0 < startDate { return (startDate, eventEdge.1) }
+                            return eventEdge
+                        }
+                        else if eventEdge.0 < startDate { return nil }
+                        else if endDate <= eventEdge.0 { return nil }
+                        return eventEdge
+                    }
+                    sortedEvents.appendContentsOf(cleanedEvents)
+                } else {
+                    let msg = "No circadian events found for decomposed query \(i)"
+                    mergeError = NSError(domain: HMErrorDomain, code: 1048576, userInfo: [NSLocalizedDescriptionKey: msg])
+                    break
+                }
+            }
+
+            guard mergeError == nil && !sortedEvents.isEmpty else {
+                if mergeError != nil { log.error(mergeError!) }
+                completion(intervals: [], error: mergeError)
+                return
+            }
 
             // Up to this point the endpoint array does not contain any fasting events
             // since these are implicitly any interval where no other meal/sleep/exercise events occurs.
@@ -1082,48 +1195,49 @@ public class MCHealthManager: NSObject {
             //
             let initialAccumulator : ([Event], Bool, Event!) = ([], true, nil)
             let endpointArray = sortedEvents.reduce(initialAccumulator, combine:
-            { (acc, event) in
-                let eventEndpointDate = event.0
-                let eventMetabolicState = event.1
+                { (acc, event) in
+                    let eventEndpointDate = event.0
+                    let eventMetabolicState = event.1
 
-                let resultArray = acc.0
-                let eventIsIntervalStart = acc.1
-                let prevEvent = acc.2
+                    let resultArray = acc.0
+                    let eventIsIntervalStart = acc.1
+                    let prevEvent = acc.2
 
-                let nextEventAsIntervalStart = !acc.1
+                    let nextEventAsIntervalStart = !acc.1
 
-                guard prevEvent != nil else {
-                    // Skip prefix indicates whether we should add a fasting interval before the first event.
-                    let skipPrefix = eventEndpointDate == startDate || startDate == NSDate.distantPast()
-                    let newResultArray = (skipPrefix ? [event] : [(startDate, CircadianEvent.Fast), (eventEndpointDate, CircadianEvent.Fast), event])
-                    return (newResultArray, nextEventAsIntervalStart, event)
-                }
+                    guard prevEvent != nil else {
+                        // Skip prefix indicates whether we should add a fasting interval before the first event.
+                        let skipPrefix = eventEndpointDate == startDate || startDate == NSDate.distantPast()
+                        let newResultArray = (skipPrefix ? [event] : [(startDate, CircadianEvent.Fast), (eventEndpointDate, CircadianEvent.Fast), event])
+                        return (newResultArray, nextEventAsIntervalStart, event)
+                    }
 
-                let prevEventEndpointDate = prevEvent.0
+                    let prevEventEndpointDate = prevEvent.0
 
-                if (eventIsIntervalStart && prevEventEndpointDate == eventEndpointDate) {
-                    // We skip adding any fasting event between back-to-back events.
-                    // To do this, we check if the current event starts an interval, and whether
-                    // the start date for this interval is the same as the end date of the previous interval.
-                    let newResult = resultArray + [(eventEndpointDate + epsilon, eventMetabolicState)]
-                    return (newResult, nextEventAsIntervalStart, event)
-                } else if eventIsIntervalStart {
-                    // This event endpoint is a starting event that has a gap to the previous event.
-                    // Thus we fill in a fasting event in between.
-                    // We truncate any events that last more than 24 hours to last 24 hours.
-                    let fastEventStart = prevEventEndpointDate + epsilon
-                    let modifiedEventEndpoint = eventEndpointDate - epsilon
-                    let fastEventEnd = modifiedEventEndpoint - 1.days > fastEventStart ? fastEventStart + 1.days : modifiedEventEndpoint
-                    let newResult = resultArray + [(fastEventStart, .Fast), (fastEventEnd, .Fast), event]
-                    return (newResult, nextEventAsIntervalStart, event)
-                } else {
-                    // This endpoint is an interval ending event.
-                    // Thus we add the endpoint to the result array.
-                    return (resultArray + [event], nextEventAsIntervalStart, event)
-                }
+                    if (eventIsIntervalStart && prevEventEndpointDate == eventEndpointDate) {
+                        // We skip adding any fasting event between back-to-back events.
+                        // To do this, we check if the current event starts an interval, and whether
+                        // the start date for this interval is the same as the end date of the previous interval.
+                        let newResult = resultArray + [(eventEndpointDate + epsilon, eventMetabolicState)]
+                        return (newResult, nextEventAsIntervalStart, event)
+                    } else if eventIsIntervalStart {
+                        // This event endpoint is a starting event that has a gap to the previous event.
+                        // Thus we fill in a fasting event in between.
+                        // We truncate any events that last more than 24 hours to last 24 hours.
+                        let fastEventStart = prevEventEndpointDate + epsilon
+                        let modifiedEventEndpoint = eventEndpointDate - epsilon
+                        let fastEventEnd = modifiedEventEndpoint - 1.days > fastEventStart ? fastEventStart + 1.days : modifiedEventEndpoint
+                        let newResult = resultArray + [(fastEventStart, .Fast), (fastEventEnd, .Fast), event]
+                        return (newResult, nextEventAsIntervalStart, event)
+                    } else {
+                        // This endpoint is an interval ending event.
+                        // Thus we add the endpoint to the result array.
+                        return (resultArray + [event], nextEventAsIntervalStart, event)
+                    }
             }).0 + lst  // Add the final fasting event to the event endpoint array.
 
-            completion(intervals: endpointArray, error: error)
+            log.info("MCHM FCEI precompletion time: \(NSDate().timeIntervalSinceReferenceDate - globalQueryStart.timeIntervalSinceReferenceDate)")
+            completion(intervals: endpointArray, error: nil)
         }
     }
 
@@ -1167,7 +1281,7 @@ public class MCHealthManager: NSObject {
     }
 
     // Compute total eating times per day by filtering and aggregating over meal events.
-    public func fetchEatingTimes(completion: HMCircadianAggregateBlock)
+    public func fetchEatingTimes(startDate: NSDate? = nil, endDate: NSDate? = nil, completion: HMCircadianAggregateBlock)
     {
         // Accumulator:
         // i. boolean indicating whether the current endpoint starts an interval.
@@ -1198,7 +1312,13 @@ public class MCHealthManager: NSObject {
             return eatingTimesByDay.sort { (a,b) in return a.0 < b.0 }
         }
 
-        fetchAggregatedCircadianEvents(nil, aggregator: aggregator, initialAccum: initial, initialResult: [], final: final, completion: completion)
+        if startDate == nil && endDate == nil {
+            fetchAggregatedCircadianEvents(nil, aggregator: aggregator, initialAccum: initial, initialResult: [], final: final, completion: completion)
+        } else {
+            fetchAggregatedCircadianEvents(startDate ?? NSDate.distantPast(), endDate: endDate ?? NSDate(),
+                                           predicate: nil, aggregator: aggregator,
+                                           initialAccum: initial, initialResult: [], final: final, completion: completion)
+        }
     }
 
     // Compute max fasting times per day by filtering and aggregating over everything other than meal events.
@@ -1254,7 +1374,9 @@ public class MCHealthManager: NSObject {
         if startDate == nil && endDate == nil {
             fetchAggregatedCircadianEvents(predicate, aggregator: aggregator, initialAccum: initial, initialResult: [], final: final, completion: completion)
         } else {
-            fetchAggregatedCircadianEvents(startDate ?? NSDate.distantPast(), endDate: endDate ?? NSDate(), predicate: predicate, aggregator: aggregator, initialAccum: initial, initialResult: [], final: final, completion: completion)
+            fetchAggregatedCircadianEvents(startDate ?? NSDate.distantPast(), endDate: endDate ?? NSDate(),
+                                           predicate: predicate, aggregator: aggregator,
+                                           initialAccum: initial, initialResult: [], final: final, completion: completion)
         }
     }
 
@@ -1760,14 +1882,28 @@ public class MCHealthManager: NSObject {
                 log.error("Failed to delete samples on the device, HealthKit may potentially diverge from the server.")
                 log.error(error)
             }
+
+            self.invalidateCircadianCache(startDate, endDate: endDate)
+
             completion(error)
         }
     }
 
 
     // MARK: - Cache invalidation
+    func invalidateCircadianCache(startDate: NSDate, endDate: NSDate) {
+        let dateRange = DateRange(startDate: startDate.startOf(.Day), endDate: endDate.endOf(.Day), stepUnits: .Day)
+        let dateSet = Set<NSDate>(dateRange)
+        for date in dateSet {
+            log.info("Invalidating circadian cache for \(date)")
+            circadianCache.removeObjectForKey(date.toString()!)
+        }
 
-    public func invalidateCache(type: HKSampleType) {
+        let dateInfo = [HMCircadianEventsDateUpdateKey: dateSet]
+        NSNotificationCenter.defaultCenter().postNotificationName(HMDidUpdateCircadianEvents, object: self, userInfo: dateInfo)
+    }
+
+    public func invalidateCacheForUpdates(type: HKSampleType, added: [HKSample]? = nil) {
         let cacheType = type.identifier == HKCorrelationTypeIdentifierBloodPressure ? HKQuantityTypeIdentifierBloodPressureSystolic : type.identifier
         let cacheKeyPrefix = cacheType
         let expiredPeriods : [HealthManagerStatisticsRangeType] = [.Week, .Month, .Year]
@@ -1789,6 +1925,17 @@ public class MCHealthManager: NSObject {
         expiredKeys.forEach {
             log.info("Invalidating aggregate cache for \($0)")
             self.aggregateCache.removeObjectForKey($0)
+        }
+
+        if added != nil {
+            let z: (NSDate?, NSDate?) = (nil, nil)
+            let minMaxDates = added!.reduce(z, combine: { (acc, s) in
+                return (min(acc.0 ?? s.startDate, s.startDate), max(acc.1 ?? s.endDate, s.endDate))
+            })
+
+            if minMaxDates.0 != nil && minMaxDates.1 != nil {
+                invalidateCircadianCache(minMaxDates.0!, endDate: minMaxDates.1!)
+            }
         }
     }
 }

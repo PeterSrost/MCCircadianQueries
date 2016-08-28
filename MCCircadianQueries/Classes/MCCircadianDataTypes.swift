@@ -5,12 +5,39 @@ import SwiftyBeaver
 
 let log = SwiftyBeaver.self
 
-public enum CircadianEvent {
+public enum CircadianEvent: Int {
     case Meal
     case Fast
     case Sleep
     case Exercise
 }
+
+@available(iOS 9.0, *)
+public class MCCircadianEventArray: NSObject, NSCoding {
+    public var events : [(NSDate, CircadianEvent)]
+
+    init(events: [(NSDate, CircadianEvent)]) {
+        self.events = events
+    }
+
+    required public convenience init?(coder aDecoder: NSCoder) {
+        guard let dates = aDecoder.decodeObjectForKey("dates") as? [NSDate] else { return nil }
+        guard let ints = aDecoder.decodeObjectForKey("events") as? [Int] else { return nil }
+
+        guard dates.count == ints.count else { return nil }
+
+        self.init(events: dates.enumerate().flatMap {
+            if let ce = CircadianEvent(rawValue: ints[$0.0]) { return ($0.1, ce) }
+            return nil
+        })
+    }
+
+    public func encodeWithCoder(aCoder: NSCoder) {
+        aCoder.encodeObject(events.map { return $0.0 }, forKey: "dates")
+        aCoder.encodeObject(events.map { return $0.1.rawValue }, forKey: "events")
+    }
+}
+
 
 /*
  * A protocol for unifying common metadata across HKSample and HKStatistic
