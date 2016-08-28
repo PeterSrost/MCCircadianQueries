@@ -1030,7 +1030,7 @@ public class MCHealthManager: NSObject {
         var queryErrors: [NSError?] = []
 
         let globalQueryStart = NSDate()
-        log.info("MCHM FCEI global query start")
+        //log.info("MCHM FCEI global query start")
 
         let cacheExpiryDate = NSDate() + 1.months
 
@@ -1047,11 +1047,11 @@ public class MCHealthManager: NSObject {
             // and recovery workouts.
             // We create event endpoints from the resulting samples.
             let queryStart = NSDate()
-            log.info("MCHM FCEI query \(queryIndex) start")
+            //log.info("MCHM FCEI query \(queryIndex) start")
 
             let runQuery : (([Event], NSError?) -> Void) -> Void = { runCompletion in
                 self.fetchSamples(typesAndPredicates) { (events, error) -> Void in
-                    log.info("MCHM FCEI query \(queryIndex) time: \(NSDate().timeIntervalSinceReferenceDate - queryStart.timeIntervalSinceReferenceDate)")
+                    //log.info("MCHM FCEI query \(queryIndex) time: \(NSDate().timeIntervalSinceReferenceDate - queryStart.timeIntervalSinceReferenceDate)")
                     guard error == nil && !events.isEmpty else {
                         runCompletion([], error)
                         return
@@ -1105,7 +1105,7 @@ public class MCHealthManager: NSObject {
 
             if useCaching {
                 let cacheKey = startDate.startOf(.Day).toString()!
-                log.info("MCHM FCEI query \(queryIndex) using caching with key \(cacheKey)")
+                //log.info("MCHM FCEI query \(queryIndex) using caching with key \(cacheKey)")
 
                 circadianCache.setObjectForKey(cacheKey, cacheBlock: { success, failure in
                     runQuery { (events, error) in
@@ -1121,7 +1121,7 @@ public class MCHealthManager: NSObject {
                     }
 
                     queryResults[queryIndex] = object?.events ?? []
-                    log.info("MCHM FCEI \(queryIndex) post sort time: \(NSDate().timeIntervalSinceReferenceDate - queryStart.timeIntervalSinceReferenceDate)")
+                    //log.info("MCHM FCEI \(queryIndex) post sort time: \(NSDate().timeIntervalSinceReferenceDate - queryStart.timeIntervalSinceReferenceDate)")
                     dispatch_group_leave(queryGroup)
                 })
             } else {
@@ -1133,13 +1133,13 @@ public class MCHealthManager: NSObject {
                     }
 
                     queryResults[queryIndex] = events
-                    log.info("MCHM FCEI \(queryIndex) post sort time: \(NSDate().timeIntervalSinceReferenceDate - queryStart.timeIntervalSinceReferenceDate)")
+                    //log.info("MCHM FCEI \(queryIndex) post sort time: \(NSDate().timeIntervalSinceReferenceDate - queryStart.timeIntervalSinceReferenceDate)")
                     dispatch_group_leave(queryGroup)
                 }
             }
         }
 
-        dispatch_group_notify(queryGroup, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0)) {
+        dispatch_group_notify(queryGroup, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0)) {
             guard queryErrors.isEmpty else {
                 completion(intervals: [], error: queryErrors.first!)
                 return
@@ -1236,7 +1236,7 @@ public class MCHealthManager: NSObject {
                     }
             }).0 + lst  // Add the final fasting event to the event endpoint array.
 
-            log.info("MCHM FCEI precompletion time: \(NSDate().timeIntervalSinceReferenceDate - globalQueryStart.timeIntervalSinceReferenceDate)")
+            //log.info("MCHM FCEI precompletion time: \(NSDate().timeIntervalSinceReferenceDate - globalQueryStart.timeIntervalSinceReferenceDate)")
             completion(intervals: endpointArray, error: nil)
         }
     }
