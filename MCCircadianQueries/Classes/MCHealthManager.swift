@@ -1062,6 +1062,7 @@ public class MCHealthManager: NSObject {
                     //
                     // We truncate the start of event intervals to the startDate parameter.
                     //
+                    log.info("MCHM FCEI raw result \(queryIndex) / \(decomposedQueries.count) \(events)")
                     let extendedEvents = events.flatMap { (ty,vals) -> [Event]? in
                         switch ty {
                         case is HKWorkoutType:
@@ -1151,13 +1152,24 @@ public class MCHealthManager: NSObject {
                 if let events = queryResults[i] {
                     let cleanedEvents: [Event] = events.enumerate().flatMap { (index, eventEdge) in
                         if index == 0 {
+                            // Drop the event if its interval end is strictly before the start date of interest.
                             if events[index+1].0 < startDate { return nil }
+
+                            // Drop the event if its interval start is equal to or after the end date of interest.
                             else if endDate <= eventEdge.0 { return nil }
+
+                            // Truncate the event if its interval start is before our start date of interest.
                             else if eventEdge.0 < startDate { return (startDate, eventEdge.1) }
+
                             return eventEdge
                         }
+
+                        // Drop the event if its interval end is strictly before the start date of interest.
                         else if eventEdge.0 < startDate { return nil }
-                        else if endDate <= eventEdge.0 { return nil }
+
+                        // Truncate the event if its interval end is after our end date of interest.
+                        else if endDate <= eventEdge.0 { return (endDate, eventEdge.1) }
+
                         return eventEdge
                     }
                     sortedEvents.appendContentsOf(cleanedEvents)
