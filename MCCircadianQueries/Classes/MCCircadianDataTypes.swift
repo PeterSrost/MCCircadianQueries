@@ -5,11 +5,69 @@ import SwiftyBeaver
 
 let log = SwiftyBeaver.self
 
-public enum CircadianEvent: Int {
-    case Meal
+public enum MealType: String {
+    case Empty     = ""
+    case Breakfast = "Breakfast"
+    case Lunch     = "Lunch"
+    case Dinner    = "Dinner"
+    case Snack     = "Snack"
+}
+
+public enum CircadianEvent: Equatable {
+    case Meal(mealType: MealType)
     case Fast
     case Sleep
-    case Exercise
+    case Exercise(exerciseType: HKWorkoutActivityType)
+
+    public init?(value: String) {
+        switch value[value.startIndex] {
+        case "m":
+            let mStr = value.substringWithRange(Range<String.Index>(start: value.startIndex.advancedBy(1), end: value.endIndex))
+            if let mt = MealType(rawValue: mStr) {
+                self = .Meal(mealType: mt)
+            } else {
+                return nil
+            }
+
+        case "f":
+            self = .Fast
+        case "s":
+            self = .Sleep
+        case "e":
+            let eStr = value.substringWithRange(Range<String.Index>(start: value.startIndex.advancedBy(1), end: value.endIndex))
+            if let rawValue = UInt(eStr), activityType = HKWorkoutActivityType(rawValue: rawValue) {
+                self = .Exercise(exerciseType: activityType)
+            } else {
+                return nil
+            }
+
+        default:
+            return nil
+        }
+    }
+
+    public func toString() -> String {
+        switch self {
+        case .Meal(let mealType):
+            return "m\(mealType)"
+        case .Fast:
+            return "f"
+        case .Sleep:
+            return "s"
+        case .Exercise(let exerciseType):
+            return "e\(exerciseType.rawValue)"
+        }
+    }
+}
+
+public func ==(lhs: CircadianEvent, rhs: CircadianEvent) -> Bool {
+    switch (lhs, rhs) {
+    case (.Meal(let a), .Meal(let b)) where a == b: return true
+    case (.Exercise(let a), .Exercise(let b)) where a == b: return true
+    case (.Fast, .Fast): return true
+    case (.Sleep, .Sleep): return true
+    default: return false
+    }
 }
 
 @available(iOS 9.0, *)
@@ -22,19 +80,19 @@ public class MCCircadianEventArray: NSObject, NSCoding {
 
     required public convenience init?(coder aDecoder: NSCoder) {
         guard let dates = aDecoder.decodeObjectForKey("dates") as? [NSDate] else { return nil }
-        guard let ints = aDecoder.decodeObjectForKey("events") as? [Int] else { return nil }
+        guard let strings = aDecoder.decodeObjectForKey("events") as? [NSString] else { return nil }
 
-        guard dates.count == ints.count else { return nil }
+        guard dates.count == strings.count else { return nil }
 
         self.init(events: dates.enumerate().flatMap {
-            if let ce = CircadianEvent(rawValue: ints[$0.0]) { return ($0.1, ce) }
+            if let ce = CircadianEvent(value: strings[$0.0] as String) { return ($0.1, ce) }
             return nil
         })
     }
 
     public func encodeWithCoder(aCoder: NSCoder) {
         aCoder.encodeObject(events.map { return $0.0 }, forKey: "dates")
-        aCoder.encodeObject(events.map { return $0.1.rawValue }, forKey: "events")
+        aCoder.encodeObject(events.map { return $0.1.toString() as NSString }, forKey: "events")
     }
 }
 

@@ -1014,7 +1014,7 @@ public class MCHealthManager: NSObject {
     //
     // [('2016-01-01 20:00', .Meal), ('2016-01-01 20:45', .Meal), ('2016-01-01 23:00', .Sleep), ('2016-01-02 07:00', .Sleep)]
     //
-    public func fetchCircadianEventIntervals(startDate: NSDate = 1.days.ago, endDate: NSDate = NSDate(), completion: HMCircadianBlock)
+    public func fetchCircadianEventIntervals(startDate: NSDate = 1.days.ago, endDate: NSDate = NSDate(), noTruncation: Bool = false, completion: HMCircadianBlock)
     {
         typealias Event = (NSDate, CircadianEvent)
         typealias IEvent = (Double, CircadianEvent)
@@ -1062,7 +1062,7 @@ public class MCHealthManager: NSObject {
                     //
                     // We truncate the start of event intervals to the startDate parameter.
                     //
-                    log.info("MCHM FCEI raw result \(queryIndex) / \(decomposedQueries.count) \(events)")
+                    //log.info("MCHM FCEI raw result \(queryIndex) / \(decomposedQueries.count) \(events)")
                     let extendedEvents = events.flatMap { (ty,vals) -> [Event]? in
                         switch ty {
                         case is HKWorkoutType:
@@ -1075,13 +1075,13 @@ public class MCHealthManager: NSObject {
                                 guard let v = s as? HKWorkout else { return [] }
                                 switch v.workoutActivityType {
                                 case HKWorkoutActivityType.PreparationAndRecovery:
-                                    if let meta = v.metadata, _ = meta["Meal Type"] {
-                                        return [(st, .Meal), (en, .Meal)]
+                                    if let meta = v.metadata, mealStr = meta["Meal Type"] as? String, mealType = MealType(rawValue: mealStr) {
+                                        return [(st, .Meal(mealType: mealType)), (en, .Meal(mealType: mealType))]
                                     }
                                     return []
 
                                 default:
-                                    return [(st, .Exercise), (en, .Exercise)]
+                                    return [(st, .Exercise(exerciseType: v.workoutActivityType)), (en, .Exercise(exerciseType: v.workoutActivityType))]
                                 }
                             }
 
@@ -1151,7 +1151,7 @@ public class MCHealthManager: NSObject {
             for i in 1..<decomposedQueries.count {
                 if let events = queryResults[i] {
                     let cleanedEvents: [Event] = events.enumerate().flatMap { (index, eventEdge) in
-                        if index == 0 {
+                        if index % 2 == 0 {
                             // Drop the event if its interval end is strictly before the start date of interest.
                             if events[index+1].0 < startDate { return nil }
 
@@ -1159,7 +1159,7 @@ public class MCHealthManager: NSObject {
                             else if endDate <= eventEdge.0 { return nil }
 
                             // Truncate the event if its interval start is before our start date of interest.
-                            else if eventEdge.0 < startDate { return (startDate, eventEdge.1) }
+                            else if eventEdge.0 < startDate { return noTruncation ? eventEdge : (startDate, eventEdge.1) }
 
                             return eventEdge
                         }
@@ -1168,7 +1168,7 @@ public class MCHealthManager: NSObject {
                         else if eventEdge.0 < startDate { return nil }
 
                         // Truncate the event if its interval end is after our end date of interest.
-                        else if endDate <= eventEdge.0 { return (endDate, eventEdge.1) }
+                        else if endDate <= eventEdge.0 { return noTruncation ? eventEdge : (endDate, eventEdge.1) }
 
                         return eventEdge
                     }
