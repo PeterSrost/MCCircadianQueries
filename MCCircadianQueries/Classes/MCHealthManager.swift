@@ -295,7 +295,9 @@ public class MCHealthManager: NSObject {
         }
 
         dispatch_group_notify(group, dispatch_get_main_queue()) {
-            self.mostRecentSamples = samples
+            for (type, statistics) in samples {
+                self.mostRecentSamples[type] = statistics
+            }
             completion(samples: samples, error: nil)
         }
     }
