@@ -20,6 +20,7 @@ public typealias HMAnchorQueryBlock    = (HKAnchoredObjectQuery, [HKSample]?, [H
 public typealias HMAnchorSamplesBlock  = (added: [HKSample], deleted: [HKDeletedObject], newAnchor: HKQueryAnchor?, error: NSError?) -> Void
 public typealias HMAnchorSamplesCBlock = (added: [HKSample], deleted: [HKDeletedObject], newAnchor: HKQueryAnchor?, error: NSError?, completion: () -> Void) -> Void
 
+public typealias HMSampleCache = Cache<MCSampleArray>
 public typealias HMAggregateCache = Cache<MCAggregateArray>
 public typealias HMCircadianCache = Cache<MCCircadianEventArray>
 
@@ -68,15 +69,15 @@ public class MCHealthManager: NSObject {
     public static let sharedManager = MCHealthManager()
 
     public lazy var healthKitStore: HKHealthStore = HKHealthStore()
-    public var mostRecentSamples: [HKSampleType: [MCSample]]
 
     // Query Caches
+    public var sampleCache: HMSampleCache
     public var aggregateCache: HMAggregateCache
     public var circadianCache: HMCircadianCache
 
     public override init() {
         do {
-            mostRecentSamples = [:]
+            self.sampleCache = try HMSampleCache(name: "HMSampleCache")
             self.aggregateCache = try HMAggregateCache(name: "HMAggregateCache")
             self.circadianCache = try HMCircadianCache(name: "HMCircadianCache")
         } catch _ {
@@ -86,7 +87,7 @@ public class MCHealthManager: NSObject {
     }
 
     public func reset() {
-        mostRecentSamples = [:]
+        sampleCache.removeAllObjects()
         aggregateCache.removeAllObjects()
         circadianCache.removeAllObjects()
     }
@@ -232,27 +233,33 @@ public class MCHealthManager: NSObject {
         let group = dispatch_group_create()
         var samples = [HKSampleType: [MCSample]]()
 
-        let updateSamples : (HKSampleType, [MCSample], NSError?) -> Void = { (type, statistics, error) in
+        let updateSamples : ((MCSampleArray, CacheExpiry) -> Void, NSError? -> Void, HKSampleType, [MCSample], NSError?) -> Void = {
+            (success, failure, type, statistics, error) in
             guard error == nil else {
                 log.error("Could not fetch recent samples for \(type.displayText): \(error)")
                 dispatch_group_leave(group)
+                failure(error)
                 return
             }
             guard statistics.isEmpty == false else {
                 log.warning("No recent samples available for \(type.displayText)")
                 dispatch_group_leave(group)
+                failure(error)
                 return
             }
             samples[type] = statistics
             dispatch_group_leave(group)
+            log.verbose("MCHM FMRS caching \(type.identifier) \(statistics)")
+            success(MCSampleArray(samples: statistics), .Never)
         }
 
-        let onStatistic : HKSampleType -> Void = { type in
+        let onStatistic : ((MCSampleArray, CacheExpiry) -> Void, NSError? -> Void, HKSampleType) -> Void = { (success, failure, type) in
             // First run a pilot query to retrieve the acquisition date of the last sample.
             self.fetchMostRecentSample(type) { (samples, error) in
                 guard error == nil else {
                     log.error("Could not fetch recent samples for \(type.displayText): \(error)")
                     dispatch_group_leave(group)
+                    failure(error)
                     return
                 }
 
@@ -261,43 +268,59 @@ public class MCHealthManager: NSObject {
                     let recentWindowStartDate = lastSample.startDate - 4.days
                     let predicate = HKSampleQuery.predicateForSamplesWithStartDate(recentWindowStartDate, endDate: nil, options: .None)
                     self.fetchStatisticsOfType(type, predicate: predicate) { (statistics, error) in
-                        updateSamples(type, statistics, error)
+                        updateSamples(success, failure, type, statistics, error)
                     }
                 } else {
-                    updateSamples(type, samples, error)
+                    updateSamples(success, failure, type, samples, error)
                 }
             }
         }
 
-        let onCatOrCorr = { type in
+        let onCatOrCorr = { (success, failure, type) in
             self.fetchMostRecentSample(type) { (statistics, error) in
-                updateSamples(type, statistics, error)
+                updateSamples(success, failure, type, statistics, error)
             }
         }
 
-        let onWorkout = { type in
+        let onWorkout = { (success, failure, type) in
             self.fetchPreparationAndRecoveryWorkout(false) { (statistics, error) in
-                updateSamples(type, statistics, error)
+                updateSamples(success, failure, type, statistics, error)
             }
         }
+
+        let globalQueryStart = NSDate()
+        log.verbose("MCHM FMRS global query start")
 
         types.forEach { (type) -> () in
             dispatch_group_enter(group)
-            if (type.identifier == HKCategoryTypeIdentifierSleepAnalysis) {
-                onCatOrCorr(type)
-            } else if (type.identifier == HKCorrelationTypeIdentifierBloodPressure) {
-                onCatOrCorr(type)
-            } else if (type.identifier == HKWorkoutTypeIdentifier) {
-                onWorkout(type)
-            } else {
-                onStatistic(type)
-            }
+            let key = type.identifier
+            sampleCache.setObjectForKey(key,
+                cacheBlock: { (success, failure) in
+                    if (type.identifier == HKCategoryTypeIdentifierSleepAnalysis) {
+                        onCatOrCorr(success, failure, type)
+                    } else if (type.identifier == HKCorrelationTypeIdentifierBloodPressure) {
+                        onCatOrCorr(success, failure, type)
+                    } else if (type.identifier == HKWorkoutTypeIdentifier) {
+                        onWorkout(success, failure, type)
+                    } else {
+                        onStatistic(success, failure, type)
+                    }
+                },
+                completion: { (samplesCoding, cacheHit, error) in
+                    guard error == nil else { return }
+
+                    let samplesOpt : [Double?] = samplesCoding?.samples.map { $0.numeralValue } ?? []
+                    log.verbose("MCHM FMRS cache result \(type.identifier) \(samplesOpt)")
+
+                    if let coding = samplesCoding where cacheHit {
+                        samples[type] = coding.samples
+                    }
+                    if cacheHit { dispatch_group_leave(group) }
+            })
         }
 
         dispatch_group_notify(group, dispatch_get_main_queue()) {
-            for (type, statistics) in samples {
-                self.mostRecentSamples[type] = statistics
-            }
+            log.verbose("MCHM FMRS time: \(NSDate().timeIntervalSinceDate(globalQueryStart))")
             completion(samples: samples, error: nil)
         }
     }
@@ -1925,6 +1948,8 @@ public class MCHealthManager: NSObject {
 
         let minMaxKeys = expiredPeriods.map { self.getPeriodCacheKey(cacheKeyPrefix, aggOp: [.DiscreteMin, .DiscreteMax], period: $0) }
         let avgKeys = expiredPeriods.map { self.getPeriodCacheKey(cacheKeyPrefix, aggOp: .DiscreteAverage, period: $0) }
+
+        self.sampleCache.removeObjectForKey(type.identifier)
 
         if cacheType == HKQuantityTypeIdentifierHeartRate || cacheType == HKQuantityTypeIdentifierUVExposure {
             expiredKeys = minMaxKeys

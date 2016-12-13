@@ -135,6 +135,164 @@ public struct MCStatisticSample : MCSample {
     }
 }
 
+public enum MCSampleCodingType: Int {
+    case StatisticsCoding
+    case SampleCoding
+    case AggregateCoding
+    case RawCoding
+}
+
+public class MCSampleCoding: NSObject, NSCoding, MCSample {
+
+    static let codingKey = "coding"
+
+    static let statisticsKey = "statistics"
+    static let sampleKey = "sample"
+    static let aggregateKey = "aggregate"
+
+    static let startKey = "start"
+    static let endKey = "end"
+    static let valKey = "value"
+    static let typeKey = "type"
+
+    public let coding: MCSampleCodingType
+
+    public var statistic : HKStatistics?
+    public var sample: HKSample?
+    public var aggregate: MCAggregateSample.MCAggregateSampleCoding?
+
+    public var startDate: NSDate
+    public var endDate: NSDate
+    public var numeralValue: Double?
+    public var hkType: HKSampleType?
+
+    public init(statistic: HKStatistics) {
+        self.coding = .StatisticsCoding
+        self.statistic = statistic
+        self.startDate = statistic.startDate
+        self.endDate = statistic.endDate
+    }
+
+    public init(sample: HKSample) {
+        self.coding = .SampleCoding
+        self.sample = sample
+        self.startDate = sample.startDate
+        self.endDate = sample.endDate
+    }
+
+    public init(aggregate: MCAggregateSample) {
+        self.coding = .AggregateCoding
+        self.aggregate = MCAggregateSample.MCAggregateSampleCoding(aggregate: aggregate)
+        self.startDate = aggregate.startDate
+        self.endDate = aggregate.endDate
+    }
+
+    public init(start: NSDate, end: NSDate, value: Double?, hkType: HKSampleType?) {
+        self.coding = .RawCoding
+        self.startDate = start
+        self.endDate = end
+        self.numeralValue = value
+        self.hkType = hkType
+    }
+
+    public convenience init(sample: MCSample) {
+        switch sample {
+        case is HKStatistics:
+            self.init(statistic: sample as! HKStatistics)
+
+        case is HKSample:
+            self.init(sample: sample as! HKSample)
+
+        case is MCAggregateSample:
+            self.init(aggregate: sample as! MCAggregateSample)
+
+        default:
+            self.init(start: sample.startDate, end: sample.endDate, value: sample.numeralValue, hkType: sample.hkType)
+        }
+    }
+
+    required public convenience init?(coder aDecoder: NSCoder) {
+        let codingValue = aDecoder.decodeIntegerForKey(MCSampleCoding.codingKey)
+        if let c = MCSampleCodingType(rawValue: codingValue) {
+            switch c {
+            case .StatisticsCoding:
+                guard let statistics = aDecoder.decodeObjectForKey(MCSampleCoding.statisticsKey) as? HKStatistics? else { return nil }
+                self.init(statistic: statistics!)
+
+            case .SampleCoding:
+                guard let sample = aDecoder.decodeObjectForKey(MCSampleCoding.sampleKey) as? HKSample? else { return nil }
+                self.init(sample: sample!)
+
+            case .AggregateCoding:
+                guard let aggregateCoding = aDecoder.decodeObjectForKey(MCSampleCoding.aggregateKey) as? MCAggregateSample.MCAggregateSampleCoding? else { return nil }
+                self.init(aggregate: aggregateCoding!.aggregate!)
+
+            case .RawCoding:
+                guard let start = aDecoder.decodeObjectForKey(MCSampleCoding.startKey) as? NSDate else { return nil }
+                guard let end = aDecoder.decodeObjectForKey(MCSampleCoding.endKey) as? NSDate else { return nil }
+                guard let value = aDecoder.decodeObjectForKey(MCSampleCoding.valKey) as? Double? else { return nil }
+                guard let hkType = aDecoder.decodeObjectForKey(MCSampleCoding.typeKey) as? HKSampleType? else { return nil }
+                self.init(start: start, end: end, value: value, hkType: hkType)
+            }
+        } else {
+            return nil
+        }
+    }
+
+    public func encodeWithCoder(aCoder: NSCoder) {
+        aCoder.encodeInteger(coding.rawValue, forKey: MCSampleCoding.codingKey)
+        switch coding {
+        case .StatisticsCoding:
+            aCoder.encodeObject(statistic, forKey: MCSampleCoding.statisticsKey)
+
+        case .SampleCoding:
+            aCoder.encodeObject(sample, forKey: MCSampleCoding.sampleKey)
+
+        case .AggregateCoding:
+            aCoder.encodeObject(aggregate, forKey: MCSampleCoding.aggregateKey)
+
+        case .RawCoding:
+            aCoder.encodeObject(startDate, forKey: MCSampleCoding.startKey)
+            aCoder.encodeObject(endDate, forKey: MCSampleCoding.endKey)
+            aCoder.encodeObject(numeralValue, forKey: MCSampleCoding.valKey)
+            aCoder.encodeObject(hkType, forKey: MCSampleCoding.typeKey)
+        }
+    }
+
+    public func toSample() -> MCSample {
+        switch coding {
+        case .StatisticsCoding:
+            return statistic!
+        case .SampleCoding:
+            return sample!
+        case .AggregateCoding:
+            return aggregate!.aggregate!
+        case .RawCoding:
+            return self
+        }
+    }
+}
+
+public class MCSampleArray: NSObject, NSCoding {
+    static let countKey = "count"
+    static let samplesKey = "samples"
+    public var samples: [MCSample]
+
+    public init(samples: [MCSample]) {
+        self.samples = samples
+    }
+
+    required public convenience init?(coder aDecoder: NSCoder) {
+        guard let codedSamples = aDecoder.decodeObjectForKey(MCSampleArray.samplesKey) as? [MCSampleCoding] else { return nil }
+        self.init(samples: codedSamples.map { $0.toSample() })
+    }
+
+    public func encodeWithCoder(aCoder: NSCoder) {
+        aCoder.encodeObject(samples.map { MCSampleCoding(sample: $0) }, forKey: MCSampleArray.samplesKey)
+    }
+}
+
+
 /*
  * Generalized aggregation, irrespective of HKSampleType.
  *
