@@ -2,7 +2,6 @@ import HealthKit
 import Foundation
 import SwiftDate
 import AwesomeCache
-import SwiftyBeaver
 
 // Typealiases
 public typealias HMAuthorizationBlock  = (success: Bool, error: NSError?) -> Void
@@ -25,7 +24,8 @@ public typealias HMAggregateCache = Cache<MCAggregateArray>
 public typealias HMCircadianCache = Cache<MCCircadianEventArray>
 
 // Constants and enums.
-public let HMDidUpdateCircadianEvents = "HMDidUpdateCircadianEvents"
+public let HMDidUpdateMeasures            = "HMDidUpdateCircadianEvents"
+public let HMDidUpdateCircadianEvents     = "HMDidUpdateCircadianEvents"
 public let HMCircadianEventsDateUpdateKey = "HMCircadianEventsDateUpdateKey"
 
 public let refDate  = NSDate(timeIntervalSinceReferenceDate: 0)
@@ -74,6 +74,9 @@ public class MCHealthManager: NSObject {
     public var sampleCache: HMSampleCache
     public var aggregateCache: HMAggregateCache
     public var circadianCache: HMCircadianCache
+
+    // Cache invalidation types for specific measures.
+    let measureTypesToInvalidate: Set<String> = Set<String>(arrayLiteral: HKQuantityTypeIdentifierHeartRate, HKQuantityTypeIdentifierStepCount)
 
     public override init() {
         do {
@@ -236,20 +239,19 @@ public class MCHealthManager: NSObject {
         let updateSamples : ((MCSampleArray, CacheExpiry) -> Void, NSError? -> Void, HKSampleType, [MCSample], NSError?) -> Void = {
             (success, failure, type, statistics, error) in
             guard error == nil else {
-                log.error("Could not fetch recent samples for \(type.displayText): \(error)")
-                dispatch_group_leave(group)
+                log.error("Could not fetch recent samples for \(type.displayText): \(error!.localizedDescription)")
                 failure(error)
                 return
             }
+
             guard statistics.isEmpty == false else {
-                log.warning("No recent samples available for \(type.displayText)")
-                dispatch_group_leave(group)
+                log.warning("No recent samples available for \(type.displayText)", feature: "fetchMostRecentSamples")
                 failure(error)
                 return
             }
+
             samples[type] = statistics
-            dispatch_group_leave(group)
-            log.verbose("MCHM FMRS caching \(type.identifier) \(statistics)")
+            log.debug("Caching \(type.identifier) \(statistics)", feature: "cache:fetchMostRecentSamples")
             success(MCSampleArray(samples: statistics), .Never)
         }
 
@@ -257,8 +259,7 @@ public class MCHealthManager: NSObject {
             // First run a pilot query to retrieve the acquisition date of the last sample.
             self.fetchMostRecentSample(type) { (samples, error) in
                 guard error == nil else {
-                    log.error("Could not fetch recent samples for \(type.displayText): \(error)")
-                    dispatch_group_leave(group)
+                    log.error("Could not fetch recent samples for \(type.displayText): \(error!.localizedDescription)")
                     failure(error)
                     return
                 }
@@ -289,7 +290,7 @@ public class MCHealthManager: NSObject {
         }
 
         let globalQueryStart = NSDate()
-        log.verbose("MCHM FMRS global query start")
+        log.debug("Query start", feature: "fetchMostRecentSamples")
 
         types.forEach { (type) -> () in
             dispatch_group_enter(group)
@@ -307,20 +308,23 @@ public class MCHealthManager: NSObject {
                     }
                 },
                 completion: { (samplesCoding, cacheHit, error) in
-                    guard error == nil else { return }
+                    log.debug("Cache result \(type.identifier) size: \(samplesCoding?.samples.count ?? -1) (hit: \(cacheHit))", feature: "cache:fetchMostRecentSamples")
+
+                    guard error == nil else {
+                        dispatch_group_leave(group)
+                        return
+                    }
 
                     let samplesOpt : [Double?] = samplesCoding?.samples.map { $0.numeralValue } ?? []
-                    log.verbose("MCHM FMRS cache result \(type.identifier) \(samplesOpt)")
-
                     if let coding = samplesCoding where cacheHit {
                         samples[type] = coding.samples
                     }
-                    if cacheHit { dispatch_group_leave(group) }
+                    dispatch_group_leave(group)
             })
         }
 
         dispatch_group_notify(group, dispatch_get_main_queue()) {
-            log.verbose("MCHM FMRS time: \(NSDate().timeIntervalSinceDate(globalQueryStart))")
+            log.debug("Query time: \(NSDate.timeIntervalSinceDate(globalQueryStart))", feature: "fetchMostRecentSamples")
             completion(samples: samples, error: nil)
         }
     }
@@ -332,17 +336,22 @@ public class MCHealthManager: NSObject {
     {
         let group = dispatch_group_create()
         var samplesByType = [HKSampleType: [MCSample]]()
+        var errors: [NSError] = []
+
+        let globalQueryStart = NSDate()
+        log.debug("Query start", feature: "fetchSamples")
 
         typesAndPredicates.forEach { (type, predicate) -> () in
             dispatch_group_enter(group)
             self.fetchSamplesOfType(type, predicate: predicate, limit: noLimit) { (samples, error) in
                 guard error == nil else {
-                    log.error("Could not fetch recent samples for \(type.displayText): \(error)")
+                    log.error("Could not fetch recent samples for \(type.displayText): \(error!.localizedDescription)")
+                    errors.append(error!)
                     dispatch_group_leave(group)
                     return
                 }
                 guard samples.isEmpty == false else {
-                    log.warning("No recent samples available for \(type.displayText)")
+                    log.debug("No recent samples available for \(type.displayText)", feature: "status:fetchSamples")
                     dispatch_group_leave(group)
                     return
                 }
@@ -352,8 +361,14 @@ public class MCHealthManager: NSObject {
         }
 
         dispatch_group_notify(group, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0)) {
-            // TODO: partial error handling, i.e., when a subset of the desired types fail in their queries.
-            completion(samples: samplesByType, error: nil)
+            let status = errors.count > 0 ? "Failure" : "Success"
+            log.debug("\(status) time: \(NSDate.timeIntervalSinceDate(globalQueryStart))", feature: "fetchSamples")
+
+            if errors.count > 0 {
+                completion(samples: [:], error: errors.first)
+            } else {
+                completion(samples: samplesByType, error: nil)
+            }
         }
     }
 
@@ -668,12 +683,17 @@ public class MCHealthManager: NSObject {
                     aggUnit: NSCalendarUnit = .Day, aggOp: HKStatisticsOptions,
                     limit: Int = noLimit, sortDescriptors: [NSSortDescriptor]? = [dateAsc], completion: HMAggregateBlock)
     {
+        let globalQueryStart = NSDate()
+        log.debug("Query start for \(sampleType.displayText ?? sampleType.identifier) op: \(aggOp)", feature: "fetchSampleAggregatesOfType")
+
         fetchSamplesOfType(sampleType, predicate: predicate, limit: limit, sortDescriptors: sortDescriptors) { samples, error in
             guard error == nil else {
+                log.debug("Failure time: \(NSDate.timeIntervalSinceDate(globalQueryStart))", feature: "fetchSampleAggregatesOfType")
                 completion(aggregates: .AggregatedSamples([]), error: error)
                 return
             }
             let byPeriod = self.aggregateByPeriod(aggUnit, aggOp: aggOp, samples: samples)
+            log.debug("Success time: \(NSDate.timeIntervalSinceDate(globalQueryStart))", feature: "fetchSampleAggregatesOfType")
             completion(aggregates: .AggregatedSamples(byPeriod.sort({ (a,b) in return a.0 < b.0 }).map { $0.1 }), error: nil)
         }
     }
@@ -743,13 +763,18 @@ public class MCHealthManager: NSObject {
                                                         anchorDate: anchorDate,
                                                         intervalComponents: interval)
 
+                let globalQueryStart = NSDate()
+                log.debug("Query start for \(sampleType.displayText ?? sampleType.identifier) op: \(aggOp) by samples: \(querySamples)", feature: "fetchAggregatesOfType")
+                
                 // Set the results handler
                 query.initialResultsHandler = { query, results, error in
                     guard error == nil else {
-                        log.error("Failed to fetch \(sampleType) statistics: \(error!)")
+                        log.error("Failed to fetch \(sampleType) statistics: \(error!)", feature: "fetchAggregatesOfType")
+                        log.debug("Failure time: \(NSDate.timeIntervalSinceDate(globalQueryStart))", feature: "fetchAggregatesOfType")
                         completion(aggregates: .None, error: error)
                         return
                     }
+                    log.debug("Success time: \(NSDate.timeIntervalSinceDate(globalQueryStart))", feature: "fetchAggregatesOfType")
                     completion(aggregates: .Statistics(results?.statistics() ?? []), error: nil)
                 }
                 healthKitStore.executeQuery(query)
@@ -801,14 +826,13 @@ public class MCHealthManager: NSObject {
                         failure(error)
                         return
                     }
-                    log.verbose("Caching aggregates for \(key)")
+                    log.debug("Caching aggregates for \(key)", feature: "cache:getStatisticsOfTypeForPeriod")
                     success(MCAggregateArray(aggregates: aggregates), .Date(self.getCacheExpiry(period)))
                 }
             }
         }, completion: {object, isLoadedFromCache, error in
-            log.verbose("Cache result \(key) \(isLoadedFromCache)")
+            log.debug("Cache result \(key) size: \(object?.aggregates.count ?? -1) (hit: \(isLoadedFromCache))", feature: "cache:getStatisticsOfTypeForPeriod")
             if let aggArray = object {
-                log.verbose("Cache result \(key) size \(aggArray.aggregates.count)")
                 self.queryResultAsSamples(.AggregatedSamples(aggArray.aggregates), error: error, completion: completion)
             } else {
                 completion(samples: [], error: error)
@@ -858,7 +882,7 @@ public class MCHealthManager: NSObject {
                     failure(error)
                     return
                 }
-                log.verbose("Caching daily aggregates for \(key)")
+                log.debug("Caching daily aggregates for \(key)", feature: "cache:getDailyStatisticsOfTypeForPeriod")
                 success(MCAggregateArray(aggregates: aggregates), .Date(self.getCacheExpiry(period)))
             }
 
@@ -874,9 +898,8 @@ public class MCHealthManager: NSObject {
                 }
             }
         }, completion: {object, isLoadedFromCache, error in
-            log.verbose("Cache daily result \(key) \(isLoadedFromCache)")
+            log.debug("Cache result \(key) size: \(object?.aggregates.count ?? -1) (hit: \(isLoadedFromCache))", feature: "cache:getDailyStatisticsOfTypeForPeriod")
             if let aggArray = object {
-                log.verbose("Cache daily result \(key) size \(aggArray.aggregates.count)")
                 self.queryResultAsSamples(.AggregatedSamples(aggArray.aggregates), error: error, completion: completion)
             } else {
                 completion(samples: [], error: error)
@@ -931,14 +954,13 @@ public class MCHealthManager: NSObject {
                         failure(error)
                         return
                     }
-                    log.verbose("Caching minmax aggregates for \(key) ")
+                    log.debug("Caching minmax aggregates for \(key) ", feature: "cache:getMinMaxOfTypeForPeriod")
                     success(MCAggregateArray(aggregates: aggregates), .Date(self.getCacheExpiry(period)))
                 }
             }
         }, completion: {object, isLoadedFromCache, error in
-            log.verbose("Cache minmax result \(key) \(isLoadedFromCache)")
+            log.debug("Cache result \(key) size: \(object?.aggregates.count ?? -1) (hit: \(isLoadedFromCache))", feature: "cache:getMinMaxOfTypeForPeriod")
             if let aggArray = object {
-                log.verbose("Cache minmax result \(key) size \(aggArray.aggregates.count)")
                 completion(aggArray.aggregates.map { finalize(.DiscreteMin, $0) }, aggArray.aggregates.map { finalize(.DiscreteMax, $0) }, error)
             } else {
                 completion([], [], error)
@@ -1020,7 +1042,7 @@ public class MCHealthManager: NSObject {
         if recent < startDate && recent < endDate && endDate < startDate + 2.weeks {
             let dateRange = DateRange(startDate: startDate.startOf(.Day), endDate: endDate.endOf(.Day), stepUnits: .Day)
             let dates = dateRange.map({ $0 }) + [endDate.endOf(.Day)]
-            log.info("Decomposing circadian query \(startDate) / \(endDate) to \(dates)")
+            log.debug("Decomposing circadian query \(startDate) / \(endDate) to \(dates)", feature: "parallelCircadian")
             return (true, dates)
         }
         return (false, [startDate, endDate])
@@ -1055,7 +1077,7 @@ public class MCHealthManager: NSObject {
         var queryErrors: [NSError?] = []
 
         let globalQueryStart = NSDate()
-        //log.info("MCHM FCEI global query start")
+        log.debug("Query start", feature: "fetchCircadianEventIntervals")
 
         let cacheExpiryDate = NSDate() + 1.months
 
@@ -1072,11 +1094,13 @@ public class MCHealthManager: NSObject {
             // and recovery workouts.
             // We create event endpoints from the resulting samples.
             let queryStart = NSDate()
-            //log.info("MCHM FCEI query \(queryIndex) start")
+            log.debug("Subquery \(queryIndex) start", feature: "fetchCircadianEventIntervals")
 
             let runQuery : (([Event], NSError?) -> Void) -> Void = { runCompletion in
                 self.fetchSamples(typesAndPredicates) { (events, error) -> Void in
-                    //log.info("MCHM FCEI query \(queryIndex) time: \(NSDate().timeIntervalSinceReferenceDate - queryStart.timeIntervalSinceReferenceDate)")
+
+                    log.debug("Subquery \(queryIndex) return time: \(NSDate.timeIntervalSinceDate(queryStart))", feature: "fetchCircadianEventIntervals")
+
                     guard error == nil && !events.isEmpty else {
                         runCompletion([], error)
                         return
@@ -1087,7 +1111,9 @@ public class MCHealthManager: NSObject {
                     //
                     // We truncate the start of event intervals to the startDate parameter.
                     //
+
                     //log.info("MCHM FCEI raw result \(queryIndex) / \(decomposedQueries.count) \(events)")
+
                     let extendedEvents = events.flatMap { (ty,vals) -> [Event]? in
                         switch ty {
                         case is HKWorkoutType:
@@ -1131,7 +1157,7 @@ public class MCHealthManager: NSObject {
 
             if useCaching {
                 let cacheKey = startDate.startOf(.Day).toString()!
-                //log.info("MCHM FCEI query \(queryIndex) using caching with key \(cacheKey)")
+                log.debug("Subquery \(queryIndex) caching with key \(cacheKey)", feature: "cache:fetchCircadianEventIntervals")
 
                 circadianCache.setObjectForKey(cacheKey, cacheBlock: { success, failure in
                     runQuery { (events, error) in
@@ -1139,15 +1165,17 @@ public class MCHealthManager: NSObject {
                         success(MCCircadianEventArray(events: events), .Date(cacheExpiryDate))
                     }
                 }, completion: { object, isLoadedFromCache, error in
+                    log.debug("Subquery \(queryIndex) key \(cacheKey) cache result size: \(object?.events.count ?? 0) (hit: \(isLoadedFromCache))", feature: "cache:fetchCircadianEventIntervals")
+
                     guard error == nil else {
-                        log.error(error)
+                        log.error(error!.localizedDescription)
                         queryErrors.append(error)
                         dispatch_group_leave(queryGroup)
                         return
                     }
 
                     queryResults[queryIndex] = object?.events ?? []
-                    //log.info("MCHM FCEI \(queryIndex) post sort time: \(NSDate().timeIntervalSinceReferenceDate - queryStart.timeIntervalSinceReferenceDate)")
+                    log.debug("Subquery \(queryIndex) time: \(NSDate.timeIntervalSinceDate(queryStart))", feature: "fetchCircadianEventIntervals")
                     dispatch_group_leave(queryGroup)
                 })
             } else {
@@ -1159,13 +1187,15 @@ public class MCHealthManager: NSObject {
                     }
 
                     queryResults[queryIndex] = events
-                    //log.info("MCHM FCEI \(queryIndex) post sort time: \(NSDate().timeIntervalSinceReferenceDate - queryStart.timeIntervalSinceReferenceDate)")
+                    log.debug("Subquery \(queryIndex) time: \(NSDate.timeIntervalSinceDate(queryStart))", feature: "fetchCircadianEventIntervals")
                     dispatch_group_leave(queryGroup)
                 }
             }
         }
 
         dispatch_group_notify(queryGroup, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0)) {
+            log.debug("Query return time: \(NSDate.timeIntervalSinceDate(globalQueryStart))", feature: "fetchCircadianEventIntervals")
+
             guard queryErrors.isEmpty else {
                 completion(intervals: [], error: queryErrors.first!)
                 return
@@ -1206,7 +1236,7 @@ public class MCHealthManager: NSObject {
             }
 
             guard mergeError == nil && !sortedEvents.isEmpty else {
-                if mergeError != nil { log.error(mergeError!) }
+                if mergeError != nil { log.error(mergeError!.localizedDescription) }
                 completion(intervals: [], error: mergeError)
                 return
             }
@@ -1273,7 +1303,7 @@ public class MCHealthManager: NSObject {
                     }
             }).0 + lst  // Add the final fasting event to the event endpoint array.
 
-            //log.info("MCHM FCEI precompletion time: \(NSDate().timeIntervalSinceReferenceDate - globalQueryStart.timeIntervalSinceReferenceDate)")
+            log.debug("Query time: \(NSDate.timeIntervalSinceDate(globalQueryStart))")
             completion(intervals: endpointArray, error: nil)
         }
     }
@@ -1427,7 +1457,12 @@ public class MCHealthManager: NSObject {
         let period : HealthManagerStatisticsRangeType = .Year
         let (predicate, _, _, _) = periodAggregation(period)
 
+        let globalQueryStart = NSDate()
+        log.debug("Query start")
+
         for sampleType in sampleTypes {
+
+
             dispatch_group_enter(group)
             let type = sampleType.identifier == HKCorrelationTypeIdentifierBloodPressure ? HKQuantityTypeIdentifierBloodPressureSystolic : sampleType.identifier
             let proxyType = sampleType.identifier == type ? sampleType : HKObjectType.quantityTypeForIdentifier(type)!
@@ -1436,7 +1471,7 @@ public class MCHealthManager: NSObject {
             let keyPrefix = "\(type)_cd"
             let key = getPeriodCacheKey(keyPrefix, aggOp: aggOp, period: period)
 
-            var queryStartTime: NSDate! = nil
+            log.debug("Subquery start for \(key)", feature: "fetchSampleCollectionDays")
 
             aggregateCache.setObjectForKey(key, cacheBlock: { success, failure in
                 // This caches a singleton array by aggregating over all samples for the year.
@@ -1445,23 +1480,20 @@ public class MCHealthManager: NSObject {
                         failure(error)
                         return
                     }
-                    log.verbose("Caching sample collection days for \(key)")
                     let agg = self.aggregateSamplesManually(proxyType, aggOp: aggOp, samples: samples)
-                    log.info("Finished SCQ for \(key) \(NSDate().timeIntervalSinceDate(queryStartTime!))")
+                    log.debug("Subquery time for \(key): \(NSDate.timeIntervalSinceDate(globalQueryStart))", feature: "fetchSampleCollectionDays")
+                    log.debug("Caching for \(key)", feature: "cache:fetchSampleCollectionDays")
                     success(MCAggregateArray(aggregates: [agg]), .Date(self.getCacheExpiry(period)))
                 }
-
-                log.info("Starting SCQ for \(key)")
-                queryStartTime = NSDate()
 
                 self.fetchAggregatesOfType(proxyType, predicate: predicate, aggUnit: .Day, aggOp: aggOp) {
                     self.queryResultAsSamples($0, error: $1) { doCache($0, $1) }
                 }
             }, completion: {object, isLoadedFromCache, error in
-                log.verbose("Cache sample collection days result \(key) \(isLoadedFromCache)")
+                log.debug("Cache result \(key) size: \(object?.aggregates.count ?? -1) (hit: \(isLoadedFromCache))", feature: "cache:fetchSampleCollectionDays")
 
                 guard error == nil else {
-                    log.error(error)
+                    log.error(error!.localizedDescription)
                     someError = error
                     results.updateValue(0, forKey: sampleType)
                     dispatch_group_leave(group)
@@ -1469,16 +1501,13 @@ public class MCHealthManager: NSObject {
                 }
 
                 if let aggArray = object {
-                    log.verbose("Cache sample collection days result \(key) size \(aggArray.aggregates.count)")
                     if aggArray.aggregates.count > 0 {
                         results.updateValue(aggArray.aggregates[0].count(), forKey: sampleType)
                     } else {
-                        log.info("No aggregates found for collection days")
                         results.updateValue(0, forKey: sampleType)
                     }
                     dispatch_group_leave(group)
                 } else {
-                    log.info("No aggregate array found for collection days")
                     results.updateValue(0, forKey: sampleType)
                     dispatch_group_leave(group)
                 }
@@ -1486,6 +1515,7 @@ public class MCHealthManager: NSObject {
         }
 
         dispatch_group_notify(group, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0)) {
+            log.debug("Query time: \(NSDate.timeIntervalSinceDate(globalQueryStart))", feature: "fetchSampleCollectionDays")
             completion(results, someError)
         }
     }
@@ -1588,10 +1618,10 @@ public class MCHealthManager: NSObject {
     public func fetchWeeklyFastingVariability(startDate: NSDate = 1.years.ago, endDate: NSDate = NSDate(),
                                               completion: (variability: Double, error: NSError?) -> Void)
     {
-        log.info("Starting WFV query")
+        log.debug("Query start", feature: "fetchWeeklyFastingVariability")
         let queryStartTime = NSDate()
         fetchFastingVariability(startDate, endDate: endDate, aggUnit: .WeekOfYear) {
-            log.info("Finished WFV query \(NSDate().timeIntervalSinceDate(queryStartTime))")
+            log.debug("Query time: \(NSDate.timeIntervalSinceDate(queryStartTime))", feature: "fetchWeeklyFastingVariability")
             completion(variability: $0, error: $1)
         }
     }
@@ -1599,10 +1629,10 @@ public class MCHealthManager: NSObject {
     public func fetchDailyFastingVariability(startDate: NSDate = 1.months.ago, endDate: NSDate = NSDate(),
                                              completion: (variability: Double, error: NSError?) -> Void)
     {
-        log.info("Starting DFV query")
+        log.debug("Query start", feature: "fetchDailyFastingVariability")
         let queryStartTime = NSDate()
         fetchFastingVariability(startDate, endDate: endDate, aggUnit: .Day) {
-            log.info("Finished DFV query \(NSDate().timeIntervalSinceDate(queryStartTime))")
+            log.debug("Query time: \(NSDate.timeIntervalSinceDate(queryStartTime))", feature: "fetchDailyFastingVariability")
             completion(variability: $0, error: $1)
         }
     }
@@ -1619,10 +1649,10 @@ public class MCHealthManager: NSObject {
             }
         }
 
-        log.info("Starting WF STATE query")
+        log.debug("Query start", feature: "fetchWeeklyFastState")
         let queryStartTime = NSDate()
         fetchCircadianDurationsByGroup("WFS", startDate: 1.weeks.ago, endDate: NSDate(), groupBy: group) { (categories, error) in
-            log.info("Finished WF STATE query \(NSDate().timeIntervalSinceDate(queryStartTime))")
+            log.debug("Query time: \(NSDate.timeIntervalSinceDate(queryStartTime))", feature: "fetchWeeklyFastState")
             guard error == nil else {
                 completion(fast: 0.0, nonFast: 0.0, error: error)
                 return
@@ -1653,10 +1683,10 @@ public class MCHealthManager: NSObject {
             }
         }
 
-        log.info("Starting WF TYPE query")
+        log.debug("Query start", feature: "fetchWeeklyFastType")
         let queryStartTime = NSDate()
         fetchCircadianDurationsByGroup("WFT", startDate: 1.weeks.ago, endDate: NSDate(), predicate: predicate, groupBy: group) { (categories, error) in
-            log.info("Finished WF TYPE query \(NSDate().timeIntervalSinceDate(queryStartTime))")
+            log.debug("Query time: \(NSDate.timeIntervalSinceDate(queryStartTime))", feature: "fetchWeeklyFastType")
             guard error == nil else {
                 completion(fastSleep: 0.0, fastAwake: 0.0, error: error)
                 return
@@ -1687,10 +1717,10 @@ public class MCHealthManager: NSObject {
             }
         }
 
-        log.info("Starting WEE query")
+        log.debug("Query start", feature: "fetchWeeklyEatAndExercise")
         let queryStartTime = NSDate()
         fetchCircadianDurationsByGroup("WEE", startDate: 1.weeks.ago, endDate: NSDate(), predicate: predicate, groupBy: group) { (categories, error) in
-            log.info("Finished WEE query \(NSDate().timeIntervalSinceDate(queryStartTime))")
+            log.debug("Query time: \(NSDate.timeIntervalSinceDate(queryStartTime))", feature: "fetchWeeklyEatAndExercise")
             guard error == nil else {
                 completion(eatingTime: 0.0, exerciseTime: 0.0, error: error)
                 return
@@ -1778,7 +1808,7 @@ public class MCHealthManager: NSObject {
 
     public func saveSleep(startDate: NSDate, endDate: NSDate, metadata: NSDictionary, completion: ( (Bool, NSError!) -> Void)!)
     {
-        log.debug("Saving sleep \(startDate) \(endDate)")
+        log.debug("Saving sleep event \(startDate) \(endDate)", feature: "saveActivity")
 
         let type = HKObjectType.categoryTypeForIdentifier(HKCategoryTypeIdentifierSleepAnalysis)!
         let sample = HKCategorySample(type: type, value: HKCategoryValueSleepAnalysis.Asleep.rawValue, startDate: startDate, endDate: endDate, metadata: metadata as? [String : AnyObject])
@@ -1791,7 +1821,7 @@ public class MCHealthManager: NSObject {
 
     public func saveWorkout(startDate: NSDate, endDate: NSDate, activityType: HKWorkoutActivityType, distance: Double, distanceUnit: HKUnit, kiloCalories: Double, metadata:NSDictionary, completion: ( (Bool, NSError!) -> Void)!)
     {
-        log.debug("Saving workout \(startDate) \(endDate)")
+        log.debug("Saving workout event \(startDate) \(endDate)", feature: "saveActivity")
 
         let distanceQuantity = HKQuantity(unit: distanceUnit, doubleValue: distance)
         let caloriesQuantity = HKQuantity(unit: HKUnit.kilocalorieUnit(), doubleValue: kiloCalories)
@@ -1917,7 +1947,7 @@ public class MCHealthManager: NSObject {
         self.deleteSamples(startDate, endDate: endDate, typesAndPredicates: typesAndPredicates) { (deleted, error) in
             if error != nil {
                 log.error("Failed to delete samples on the device, HealthKit may potentially diverge from the server.")
-                log.error(error)
+                log.error(error!.localizedDescription)
             }
 
             self.invalidateCircadianCache(startDate, endDate: endDate)
@@ -1932,12 +1962,17 @@ public class MCHealthManager: NSObject {
         let dateRange = DateRange(startDate: startDate.startOf(.Day), endDate: endDate.endOf(.Day), stepUnits: .Day)
         let dateSet = Set<NSDate>(dateRange)
         for date in dateSet {
-            log.info("Invalidating circadian cache for \(date)")
+            log.debug("Invalidating circadian cache for \(date)", feature: "invalidateCache")
             circadianCache.removeObjectForKey(date.toString()!)
         }
 
         let dateInfo = [HMCircadianEventsDateUpdateKey: dateSet]
         NSNotificationCenter.defaultCenter().postNotificationName(HMDidUpdateCircadianEvents, object: self, userInfo: dateInfo)
+    }
+
+    func invalidateMeasureCache(sampleTypeId: String) {
+        let typeInfo = ["type": sampleTypeId]
+        NSNotificationCenter.defaultCenter().postNotificationName(HMDidUpdateMeasures, object: self, userInfo: typeInfo)
     }
 
     public func invalidateCacheForUpdates(type: HKSampleType, added: [HKSample]? = nil) {
@@ -1962,8 +1997,12 @@ public class MCHealthManager: NSObject {
             expiredKeys = avgKeys
         }
         expiredKeys.forEach {
-            log.info("Invalidating aggregate cache for \($0)")
+            log.debug("Invalidating aggregate cache for \($0)", feature: "invalidateCache")
             self.aggregateCache.removeObjectForKey($0)
+        }
+
+        if measureTypesToInvalidate.contains(cacheType) {
+            invalidateMeasureCache(cacheType)
         }
 
         if added != nil {

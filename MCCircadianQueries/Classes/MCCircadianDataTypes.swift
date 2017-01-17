@@ -1,9 +1,8 @@
 import Foundation
 import HealthKit
 import AwesomeCache
-import SwiftyBeaver
 
-let log = SwiftyBeaver.self
+let log = RemoteLog.sharedInstance
 
 public enum MealType: String {
     case Empty     = ""
