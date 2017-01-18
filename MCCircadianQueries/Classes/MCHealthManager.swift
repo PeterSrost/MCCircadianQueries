@@ -1,5 +1,14 @@
-import HealthKit
+//
+//  MCHealthManager.swift
+//  MCCircadianQueries
+//
+//  Created by Yanif Ahmad on 1/14/17.
+//  Copyright © 2017 Yanif Ahmad, Tom Woolf. All rights reserved.
+//
+
 import Foundation
+import HealthKit
+import Async
 import SwiftDate
 import AwesomeCache
 
@@ -24,9 +33,12 @@ public typealias HMAggregateCache = Cache<MCAggregateArray>
 public typealias HMCircadianCache = Cache<MCCircadianEventArray>
 
 // Constants and enums.
-public let HMDidUpdateMeasures            = "HMDidUpdateCircadianEvents"
-public let HMDidUpdateCircadianEvents     = "HMDidUpdateCircadianEvents"
-public let HMCircadianEventsDateUpdateKey = "HMCircadianEventsDateUpdateKey"
+public let HMDidUpdateRecentSamplesNotification = "HMDidUpdateRecentSamplesNotification"
+public let HMDidUpdateAnyMeasures               = "HMDidUpdateAnyMeasures"
+public let HMDidUpdateMeasuresPfx               = "HMDidUpdateMeasuresPfx"
+public let HMDidUpdateCircadianEvents           = "HMDidUpdateCircadianEvents"
+public let HMCircadianEventsDateUpdateKey       = "HMCircadianEventsDateUpdateKey"
+public let HMDidUpdatedChartsData               = "HMDidUpdatedChartsData"
 
 public let refDate  = NSDate(timeIntervalSinceReferenceDate: 0)
 public let noAnchor = HKQueryAnchor(fromValue: Int(HKAnchoredObjectQueryNoAnchor))
@@ -76,7 +88,12 @@ public class MCHealthManager: NSObject {
     public var circadianCache: HMCircadianCache
 
     // Cache invalidation types for specific measures.
-    let measureTypesToInvalidate: Set<String> = Set<String>(arrayLiteral: HKQuantityTypeIdentifierHeartRate, HKQuantityTypeIdentifierStepCount)
+    public let measureInvalidationsByType: Set<String> = Set<String>(arrayLiteral: HKQuantityTypeIdentifierHeartRate, HKQuantityTypeIdentifierStepCount)
+
+    // Invalidation batching.
+    private var anyMeasureNotifyTask: Async! = nil
+    private var measureNotifyTaskByType: [String: Async!] = [:]
+    private let notifyInterval = 2.0 // In seconds.
 
     public override init() {
         do {
@@ -1966,13 +1983,19 @@ public class MCHealthManager: NSObject {
             circadianCache.removeObjectForKey(date.toString()!)
         }
 
+        log.debug("Invalidate circadian cache notifying for \(startDate) \(endDate)", feature: "invalidateCache")
         let dateInfo = [HMCircadianEventsDateUpdateKey: dateSet]
         NSNotificationCenter.defaultCenter().postNotificationName(HMDidUpdateCircadianEvents, object: self, userInfo: dateInfo)
     }
 
     func invalidateMeasureCache(sampleTypeId: String) {
+        log.debug("Invalidate measures cache notifying on \(sampleTypeId)", feature: "invalidateCache")
         let typeInfo = ["type": sampleTypeId]
-        NSNotificationCenter.defaultCenter().postNotificationName(HMDidUpdateMeasures, object: self, userInfo: typeInfo)
+        if let task = measureNotifyTaskByType[sampleTypeId] { task.cancel() }
+        let task = Async.background(after: notifyInterval) {
+            NSNotificationCenter.defaultCenter().postNotificationName(HMDidUpdateMeasuresPfx + sampleTypeId, object: self, userInfo: typeInfo)
+        }
+        measureNotifyTaskByType.updateValue(task, forKey: sampleTypeId)
     }
 
     public func invalidateCacheForUpdates(type: HKSampleType, added: [HKSample]? = nil) {
@@ -1984,7 +2007,15 @@ public class MCHealthManager: NSObject {
         let minMaxKeys = expiredPeriods.map { self.getPeriodCacheKey(cacheKeyPrefix, aggOp: [.DiscreteMin, .DiscreteMax], period: $0) }
         let avgKeys = expiredPeriods.map { self.getPeriodCacheKey(cacheKeyPrefix, aggOp: .DiscreteAverage, period: $0) }
 
+        log.debug("Invalidating sample and measure caches on \(type.identifier) / \(cacheType) (as relevant measure: \(measureInvalidationsByType.contains(cacheType)))", feature: "invalidateCache")
+
         self.sampleCache.removeObjectForKey(type.identifier)
+        if let task = anyMeasureNotifyTask { task.cancel() }
+        anyMeasureNotifyTask = Async.background(after: notifyInterval) {
+            NSNotificationCenter.defaultCenter().postNotificationName(HMDidUpdateAnyMeasures, object: self)
+        }
+
+        if measureInvalidationsByType.contains(cacheType) { invalidateMeasureCache(cacheType) }
 
         if cacheType == HKQuantityTypeIdentifierHeartRate || cacheType == HKQuantityTypeIdentifierUVExposure {
             expiredKeys = minMaxKeys
@@ -1999,10 +2030,6 @@ public class MCHealthManager: NSObject {
         expiredKeys.forEach {
             log.debug("Invalidating aggregate cache for \($0)", feature: "invalidateCache")
             self.aggregateCache.removeObjectForKey($0)
-        }
-
-        if measureTypesToInvalidate.contains(cacheType) {
-            invalidateMeasureCache(cacheType)
         }
 
         if added != nil {
