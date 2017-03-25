@@ -6,7 +6,7 @@ Pod::Spec.new do |s|
   s.license     = { :type => "MIT" }
   s.authors     = { "twoolf" => "twoolf@jhu.edu" }
 
-  s.dependency 'AsyncSwift', '~> 1.7'
+  s.dependency 'AsyncSwift', '~> 2.0.1'
   s.dependency 'AwesomeCache'
   s.dependency 'LogKit', '~> 2.3'
   s.dependency 'SwiftDate', '~> 3.0'
