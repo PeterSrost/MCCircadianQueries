@@ -8,7 +8,6 @@ Pod::Spec.new do |s|
 
   s.dependency 'AsyncSwift', '~> 2.0.1'
   s.dependency 'AwesomeCache'
-  s.dependency 'LogKit', '~> 2.3'
   s.dependency 'SwiftDate', '~> 3.0'
   s.dependency 'SwiftyUserDefaults', '~> 2.0'
 
