@@ -9,7 +9,7 @@ Pod::Spec.new do |s|
   s.dependency 'AsyncSwift', '~> 2.0.1'
   s.dependency 'AwesomeCache'
   s.dependency 'SwiftDate', '~> 4.0'
-  s.dependency 'SwiftyUserDefaults', '~> 2.0'
+  s.dependency 'SwiftyUserDefaults', '~> 3.0'
 
   s.ios.deployment_target = "9.0"
   s.watchos.deployment_target = "2.0"
