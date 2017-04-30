@@ -2,7 +2,7 @@ import Foundation
 import HealthKit
 import AwesomeCache
 
-let log = RemoteLog.sharedInstance
+//let log = RemoteLog.sharedInstance
 
 public enum MealType: String {
     case Empty     = ""
@@ -13,29 +13,29 @@ public enum MealType: String {
 }
 
 public enum CircadianEvent: Equatable {
-    case Meal(mealType: MealType)
-    case Fast
-    case Sleep
-    case Exercise(exerciseType: HKWorkoutActivityType)
+    case meal(mealType: MealType)
+    case fast
+    case sleep
+    case exercise(exerciseType: HKWorkoutActivityType)
 
     public init?(value: String) {
         switch value[value.startIndex] {
         case "m":
-            let mStr = value.substringWithRange(Range<String.Index>(start: value.startIndex.advancedBy(1), end: value.endIndex))
+            let mStr = value.substring(with: (value.characters.index(value.startIndex, offsetBy: 1) ..< value.endIndex))
             if let mt = MealType(rawValue: mStr) {
-                self = .Meal(mealType: mt)
+                self = .meal(mealType: mt)
             } else {
                 return nil
             }
 
         case "f":
-            self = .Fast
+            self = .fast
         case "s":
-            self = .Sleep
+            self = .sleep
         case "e":
-            let eStr = value.substringWithRange(Range<String.Index>(start: value.startIndex.advancedBy(1), end: value.endIndex))
-            if let rawValue = UInt(eStr), activityType = HKWorkoutActivityType(rawValue: rawValue) {
-                self = .Exercise(exerciseType: activityType)
+            let eStr = value.substring(with: (value.characters.index(value.startIndex, offsetBy: 1) ..< value.endIndex))
+            if let rawValue = UInt(eStr), let activityType = HKWorkoutActivityType(rawValue: rawValue) {
+                self = .exercise(exerciseType: activityType)
             } else {
                 return nil
             }
@@ -47,13 +47,13 @@ public enum CircadianEvent: Equatable {
 
     public func toString() -> String {
         switch self {
-        case .Meal(let mealType):
+        case .meal(let mealType):
             return "m\(mealType)"
-        case .Fast:
+        case .fast:
             return "f"
-        case .Sleep:
+        case .sleep:
             return "s"
-        case .Exercise(let exerciseType):
+        case .exercise(let exerciseType):
             return "e\(exerciseType.rawValue)"
         }
     }
@@ -61,37 +61,37 @@ public enum CircadianEvent: Equatable {
 
 public func ==(lhs: CircadianEvent, rhs: CircadianEvent) -> Bool {
     switch (lhs, rhs) {
-    case (.Meal(let a), .Meal(let b)) where a == b: return true
-    case (.Exercise(let a), .Exercise(let b)) where a == b: return true
-    case (.Fast, .Fast): return true
-    case (.Sleep, .Sleep): return true
+    case (.meal(let a), .meal(let b)) where a == b: return true
+    case (.exercise(let a), .exercise(let b)) where a == b: return true
+    case (.fast, .fast): return true
+    case (.sleep, .sleep): return true
     default: return false
     }
 }
 
-@available(iOS 9.0, *)
-public class MCCircadianEventArray: NSObject, NSCoding {
-    public var events : [(NSDate, CircadianEvent)]
+//@available(iOS 9.0, *)
+open class MCCircadianEventArray: NSObject, NSCoding {
+    open var events : [(Date, CircadianEvent)]
 
-    init(events: [(NSDate, CircadianEvent)]) {
+    init(events: [(Date, CircadianEvent)]) {
         self.events = events
     }
 
     required public convenience init?(coder aDecoder: NSCoder) {
-        guard let dates = aDecoder.decodeObjectForKey("dates") as? [NSDate] else { return nil }
-        guard let strings = aDecoder.decodeObjectForKey("events") as? [NSString] else { return nil }
+        guard let dates = aDecoder.decodeObject(forKey: "dates") as? [Date] else { return nil }
+        guard let strings = aDecoder.decodeObject(forKey: "events") as? [NSString] else { return nil }
 
         guard dates.count == strings.count else { return nil }
 
-        self.init(events: dates.enumerate().flatMap {
+        self.init(events: dates.enumerated().flatMap {
             if let ce = CircadianEvent(value: strings[$0.0] as String) { return ($0.1, ce) }
             return nil
         })
     }
 
-    public func encodeWithCoder(aCoder: NSCoder) {
-        aCoder.encodeObject(events.map { return $0.0 }, forKey: "dates")
-        aCoder.encodeObject(events.map { return $0.1.toString() as NSString }, forKey: "events")
+    open func encode(with aCoder: NSCoder) {
+        aCoder.encode(events.map { return $0.0 }, forKey: "dates")
+        aCoder.encode(events.map { return $0.1.toString() as NSString }, forKey: "events")
     }
 }
 
@@ -99,49 +99,49 @@ public class MCCircadianEventArray: NSObject, NSCoding {
 /*
  * A protocol for unifying common metadata across HKSample and HKStatistic
  */
-@available(iOS 9.0, *)
+//@available(iOS 9.0, *)
 public protocol MCSample {
-    var startDate    : NSDate        { get }
-    var endDate      : NSDate        { get }
+    var startDate    : Date        { get }
+    var endDate      : Date        { get }
     var numeralValue : Double?       { get }
     var hkType       : HKSampleType? { get }
 }
 
-@available(iOS 9.0, *)
+//@available(iOS 9.0, *)
 public struct MCStatisticSample : MCSample {
     public var statistic    : HKStatistics
     public var numeralValue : Double?
 
-    public var startDate    : NSDate        { return statistic.startDate   }
-    public var endDate      : NSDate        { return statistic.endDate     }
+    public var startDate    : Date        { return statistic.startDate   }
+    public var endDate      : Date        { return statistic.endDate     }
     public var hkType       : HKSampleType? { return statistic.hkType      }
 
     public init(statistic: HKStatistics, statsOption: HKStatisticsOptions) {
         self.statistic = statistic
         self.numeralValue = nil
-        if ( statsOption.contains(.DiscreteAverage) ) {
-            self.numeralValue = statistic.averageQuantity()?.doubleValueForUnit(hkType!.defaultUnit!)
+        if ( statsOption.contains(.discreteAverage) ) {
+            self.numeralValue = statistic.averageQuantity()?.doubleValue(for: hkType!.defaultUnit!)
         }
-        if ( statsOption.contains(.DiscreteMin) ) {
-            self.numeralValue = statistic.minimumQuantity()?.doubleValueForUnit(hkType!.defaultUnit!)
+        if ( statsOption.contains(.discreteMin) ) {
+            self.numeralValue = statistic.minimumQuantity()?.doubleValue(for: hkType!.defaultUnit!)
         }
-        if ( statsOption.contains(.DiscreteMax) ) {
-            self.numeralValue = statistic.maximumQuantity()?.doubleValueForUnit(hkType!.defaultUnit!)
+        if ( statsOption.contains(.discreteMax) ) {
+            self.numeralValue = statistic.maximumQuantity()?.doubleValue(for: hkType!.defaultUnit!)
         }
-        if ( statsOption.contains(.CumulativeSum) ) {
-            self.numeralValue = statistic.sumQuantity()?.doubleValueForUnit(hkType!.defaultUnit!)
+        if ( statsOption.contains(.cumulativeSum) ) {
+            self.numeralValue = statistic.sumQuantity()?.doubleValue(for: hkType!.defaultUnit!)
         }
     }
 }
 
 public enum MCSampleCodingType: Int {
-    case StatisticsCoding
-    case SampleCoding
-    case AggregateCoding
-    case RawCoding
+    case statisticsCoding
+    case sampleCoding
+    case aggregateCoding
+    case rawCoding
 }
 
-public class MCSampleCoding: NSObject, NSCoding, MCSample {
+open class MCSampleCoding: NSObject, NSCoding, MCSample {
 
     static let codingKey = "coding"
 
@@ -154,40 +154,40 @@ public class MCSampleCoding: NSObject, NSCoding, MCSample {
     static let valKey = "value"
     static let typeKey = "type"
 
-    public let coding: MCSampleCodingType
+    open let coding: MCSampleCodingType
 
-    public var statistic : HKStatistics?
-    public var sample: HKSample?
-    public var aggregate: MCAggregateSample.MCAggregateSampleCoding?
+    open var statistic : HKStatistics?
+    open var sample: HKSample?
+    open var aggregate: MCAggregateSample.MCAggregateSampleCoding?
 
-    public var startDate: NSDate
-    public var endDate: NSDate
-    public var numeralValue: Double?
-    public var hkType: HKSampleType?
+    open var startDate: Date
+    open var endDate: Date
+    open var numeralValue: Double?
+    open var hkType: HKSampleType?
 
     public init(statistic: HKStatistics) {
-        self.coding = .StatisticsCoding
+        self.coding = .statisticsCoding
         self.statistic = statistic
         self.startDate = statistic.startDate
         self.endDate = statistic.endDate
     }
 
     public init(sample: HKSample) {
-        self.coding = .SampleCoding
+        self.coding = .sampleCoding
         self.sample = sample
         self.startDate = sample.startDate
         self.endDate = sample.endDate
     }
 
     public init(aggregate: MCAggregateSample) {
-        self.coding = .AggregateCoding
+        self.coding = .aggregateCoding
         self.aggregate = MCAggregateSample.MCAggregateSampleCoding(aggregate: aggregate)
         self.startDate = aggregate.startDate
         self.endDate = aggregate.endDate
     }
 
-    public init(start: NSDate, end: NSDate, value: Double?, hkType: HKSampleType?) {
-        self.coding = .RawCoding
+    public init(start: Date, end: Date, value: Double?, hkType: HKSampleType?) {
+        self.coding = .rawCoding
         self.startDate = start
         self.endDate = end
         self.numeralValue = value
@@ -211,26 +211,26 @@ public class MCSampleCoding: NSObject, NSCoding, MCSample {
     }
 
     required public convenience init?(coder aDecoder: NSCoder) {
-        let codingValue = aDecoder.decodeIntegerForKey(MCSampleCoding.codingKey)
+        let codingValue = aDecoder.decodeInteger(forKey: MCSampleCoding.codingKey)
         if let c = MCSampleCodingType(rawValue: codingValue) {
             switch c {
-            case .StatisticsCoding:
-                guard let statistics = aDecoder.decodeObjectForKey(MCSampleCoding.statisticsKey) as? HKStatistics? else { return nil }
+            case .statisticsCoding:
+                guard let statistics = aDecoder.decodeObject(forKey: MCSampleCoding.statisticsKey) as? HKStatistics? else { return nil }
                 self.init(statistic: statistics!)
 
-            case .SampleCoding:
-                guard let sample = aDecoder.decodeObjectForKey(MCSampleCoding.sampleKey) as? HKSample? else { return nil }
+            case .sampleCoding:
+                guard let sample = aDecoder.decodeObject(forKey: MCSampleCoding.sampleKey) as? HKSample? else { return nil }
                 self.init(sample: sample!)
 
-            case .AggregateCoding:
-                guard let aggregateCoding = aDecoder.decodeObjectForKey(MCSampleCoding.aggregateKey) as? MCAggregateSample.MCAggregateSampleCoding? else { return nil }
+            case .aggregateCoding:
+                guard let aggregateCoding = aDecoder.decodeObject(forKey: MCSampleCoding.aggregateKey) as? MCAggregateSample.MCAggregateSampleCoding? else { return nil }
                 self.init(aggregate: aggregateCoding!.aggregate!)
 
-            case .RawCoding:
-                guard let start = aDecoder.decodeObjectForKey(MCSampleCoding.startKey) as? NSDate else { return nil }
-                guard let end = aDecoder.decodeObjectForKey(MCSampleCoding.endKey) as? NSDate else { return nil }
-                guard let value = aDecoder.decodeObjectForKey(MCSampleCoding.valKey) as? Double? else { return nil }
-                guard let hkType = aDecoder.decodeObjectForKey(MCSampleCoding.typeKey) as? HKSampleType? else { return nil }
+            case .rawCoding:
+                guard let start = aDecoder.decodeObject(forKey: MCSampleCoding.startKey) as? Date else { return nil }
+                guard let end = aDecoder.decodeObject(forKey: MCSampleCoding.endKey) as? Date else { return nil }
+                guard let value = aDecoder.decodeObject(forKey: MCSampleCoding.valKey) as? Double? else { return nil }
+                guard let hkType = aDecoder.decodeObject(forKey: MCSampleCoding.typeKey) as? HKSampleType? else { return nil }
                 self.init(start: start, end: end, value: value, hkType: hkType)
             }
         } else {
@@ -238,56 +238,56 @@ public class MCSampleCoding: NSObject, NSCoding, MCSample {
         }
     }
 
-    public func encodeWithCoder(aCoder: NSCoder) {
-        aCoder.encodeInteger(coding.rawValue, forKey: MCSampleCoding.codingKey)
+    open func encode(with aCoder: NSCoder) {
+        aCoder.encode(coding.rawValue, forKey: MCSampleCoding.codingKey)
         switch coding {
-        case .StatisticsCoding:
-            aCoder.encodeObject(statistic, forKey: MCSampleCoding.statisticsKey)
+        case .statisticsCoding:
+            aCoder.encode(statistic, forKey: MCSampleCoding.statisticsKey)
 
-        case .SampleCoding:
-            aCoder.encodeObject(sample, forKey: MCSampleCoding.sampleKey)
+        case .sampleCoding:
+            aCoder.encode(sample, forKey: MCSampleCoding.sampleKey)
 
-        case .AggregateCoding:
-            aCoder.encodeObject(aggregate, forKey: MCSampleCoding.aggregateKey)
+        case .aggregateCoding:
+            aCoder.encode(aggregate, forKey: MCSampleCoding.aggregateKey)
 
-        case .RawCoding:
-            aCoder.encodeObject(startDate, forKey: MCSampleCoding.startKey)
-            aCoder.encodeObject(endDate, forKey: MCSampleCoding.endKey)
-            aCoder.encodeObject(numeralValue, forKey: MCSampleCoding.valKey)
-            aCoder.encodeObject(hkType, forKey: MCSampleCoding.typeKey)
+        case .rawCoding:
+            aCoder.encode(startDate, forKey: MCSampleCoding.startKey)
+            aCoder.encode(endDate, forKey: MCSampleCoding.endKey)
+            aCoder.encode(numeralValue, forKey: MCSampleCoding.valKey)
+            aCoder.encode(hkType, forKey: MCSampleCoding.typeKey)
         }
     }
 
-    public func toSample() -> MCSample {
+    open func toSample() -> MCSample {
         switch coding {
-        case .StatisticsCoding:
+        case .statisticsCoding:
             return statistic!
-        case .SampleCoding:
+        case .sampleCoding:
             return sample!
-        case .AggregateCoding:
+        case .aggregateCoding:
             return aggregate!.aggregate!
-        case .RawCoding:
+        case .rawCoding:
             return self
         }
     }
 }
 
-public class MCSampleArray: NSObject, NSCoding {
+open class MCSampleArray: NSObject, NSCoding {
     static let countKey = "count"
     static let samplesKey = "samples"
-    public var samples: [MCSample]
+    open var samples: [MCSample]
 
     public init(samples: [MCSample]) {
         self.samples = samples
     }
 
     required public convenience init?(coder aDecoder: NSCoder) {
-        guard let codedSamples = aDecoder.decodeObjectForKey(MCSampleArray.samplesKey) as? [MCSampleCoding] else { return nil }
+        guard let codedSamples = aDecoder.decodeObject(forKey: MCSampleArray.samplesKey) as? [MCSampleCoding] else { return nil }
         self.init(samples: codedSamples.map { $0.toSample() })
     }
 
-    public func encodeWithCoder(aCoder: NSCoder) {
-        aCoder.encodeObject(samples.map { MCSampleCoding(sample: $0) }, forKey: MCSampleArray.samplesKey)
+    open func encode(with aCoder: NSCoder) {
+        aCoder.encode(samples.map { MCSampleCoding(sample: $0) }, forKey: MCSampleArray.samplesKey)
     }
 }
 
@@ -300,10 +300,10 @@ public class MCSampleArray: NSObject, NSCoding {
  *
  * The increment operation provided within can only be applied to samples of a matching type.
  */
-@available(iOS 9.0, *)
+//@available(iOS 9.0, *)
 public struct MCAggregateSample : MCSample {
-    public var startDate    : NSDate
-    public var endDate      : NSDate
+    public var startDate    : Date
+    public var endDate      : Date
     public var numeralValue : Double?
     public var hkType       : HKSampleType?
     public var aggOp        : HKStatisticsOptions
@@ -320,7 +320,7 @@ public struct MCAggregateSample : MCSample {
         self.incr(sample)
     }
 
-    public init(startDate: NSDate = NSDate(), endDate: NSDate = NSDate(), value: Double?, sampleType: HKSampleType?, op: HKStatisticsOptions) {
+    public init(startDate: Date = Date(), endDate: Date = Date(), value: Double?, sampleType: HKSampleType?, op: HKStatisticsOptions) {
         self.startDate = startDate
         self.endDate = endDate
         numeralValue = value
@@ -337,20 +337,20 @@ public struct MCAggregateSample : MCSample {
 
         // Initialize internal statistics.
         if let sumQ = statistic.sumQuantity() {
-            runningAgg[0] = sumQ.doubleValueForUnit(hkType!.defaultUnit!)
+            runningAgg[0] = sumQ.doubleValue(for: hkType!.defaultUnit!)
         } else if let avgQ = statistic.averageQuantity() {
-            runningAgg[0] = avgQ.doubleValueForUnit(hkType!.defaultUnit!)
+            runningAgg[0] = avgQ.doubleValue(for: hkType!.defaultUnit!)
             runningCnt = 1
         }
         if let minQ = statistic.minimumQuantity() {
-            runningAgg[1] = minQ.doubleValueForUnit(hkType!.defaultUnit!)
+            runningAgg[1] = minQ.doubleValue(for: hkType!.defaultUnit!)
         }
         if let maxQ = statistic.maximumQuantity() {
-            runningAgg[2] = maxQ.doubleValueForUnit(hkType!.defaultUnit!)
+            runningAgg[2] = maxQ.doubleValue(for: hkType!.defaultUnit!)
         }
     }
 
-    public init(startDate: NSDate, endDate: NSDate, numeralValue: Double?, hkType: HKSampleType?,
+    public init(startDate: Date, endDate: Date, numeralValue: Double?, hkType: HKSampleType?,
                 aggOp: HKStatisticsOptions, runningAgg: [Double], runningCnt: Int)
     {
         self.startDate = startDate
@@ -362,34 +362,34 @@ public struct MCAggregateSample : MCSample {
         self.runningCnt = runningCnt
     }
 
-    public mutating func rsum(sample: MCSample) {
+    public mutating func rsum(_ sample: MCSample) {
         runningAgg[0] += sample.numeralValue!
         runningCnt += 1
     }
 
-    public mutating func rmin(sample: MCSample) {
+    public mutating func rmin(_ sample: MCSample) {
         runningAgg[1] = min(runningAgg[1], sample.numeralValue!)
         runningCnt += 1
     }
 
-    public mutating func rmax(sample: MCSample) {
+    public mutating func rmax(_ sample: MCSample) {
         runningAgg[2] = max(runningAgg[2], sample.numeralValue!)
         runningCnt += 1
     }
 
-    public mutating func incrOp(sample: MCSample) {
-        if aggOp.contains(.DiscreteAverage) || aggOp.contains(.CumulativeSum) {
+    public mutating func incrOp(_ sample: MCSample) {
+        if aggOp.contains(.discreteAverage) || aggOp.contains(.cumulativeSum) {
             rsum(sample)
         }
-        if aggOp.contains(.DiscreteMin) {
+        if aggOp.contains(.discreteMin) {
             rmin(sample)
         }
-        if aggOp.contains(.DiscreteMax) {
+        if aggOp.contains(.discreteMax) {
             rmax(sample)
         }
     }
 
-    public mutating func incr(sample: MCSample) {
+    public mutating func incr(_ sample: MCSample) {
         if hkType == sample.hkType {
             startDate = min(sample.startDate, startDate)
             endDate = max(sample.endDate, endDate)
@@ -397,20 +397,20 @@ public struct MCAggregateSample : MCSample {
             switch hkType! {
             case is HKCategoryType:
                 switch hkType!.identifier {
-                case HKCategoryTypeIdentifierSleepAnalysis:
+                case HKCategoryTypeIdentifier.sleepAnalysis.rawValue:
                     incrOp(sample)
 
-                default:
-                    log.error("Cannot aggregate \(hkType)")
+                default: break
+//                    log.error("Cannot aggregate \(hkType)")
                 }
 
             case is HKCorrelationType:
                 switch hkType!.identifier {
-                case HKCorrelationTypeIdentifierBloodPressure:
+                case HKCorrelationTypeIdentifier.bloodPressure.rawValue:
                     incrOp(sample)
 
-                default:
-                    log.error("Cannot aggregate \(hkType)")
+                default: break
+//                    log.error("Cannot aggregate \(hkType)")
                 }
 
             case is HKWorkoutType:
@@ -419,50 +419,50 @@ public struct MCAggregateSample : MCSample {
             case is HKQuantityType:
                 incrOp(sample)
 
-            default:
-                log.error("Cannot aggregate \(hkType)")
+            default: break
+//                log.error("Cannot aggregate \(hkType)")
             }
 
         } else {
-            log.error("Invalid sample aggregation between \(hkType) and \(sample.hkType)")
+//            log.error("Invalid sample aggregation between \(hkType) and \(sample.hkType)")
         }
     }
 
     public mutating func final() {
-        if aggOp.contains(.CumulativeSum) {
+        if aggOp.contains(.cumulativeSum) {
             numeralValue = runningAgg[0]
-        } else if aggOp.contains(.DiscreteAverage) {
+        } else if aggOp.contains(.discreteAverage) {
             numeralValue = runningAgg[0] / Double(runningCnt)
-        } else if aggOp.contains(.DiscreteMin) {
+        } else if aggOp.contains(.discreteMin) {
             numeralValue = runningAgg[1]
-        } else if aggOp.contains(.DiscreteMax) {
+        } else if aggOp.contains(.discreteMax) {
             numeralValue = runningAgg[2]
         }
     }
 
-    public mutating func finalAggregate(finalOp: HKStatisticsOptions) {
-        if aggOp.contains(.CumulativeSum) && finalOp.contains(.CumulativeSum) {
+    public mutating func finalAggregate(_ finalOp: HKStatisticsOptions) {
+        if aggOp.contains(.cumulativeSum) && finalOp.contains(.cumulativeSum) {
             numeralValue = runningAgg[0]
-        } else if aggOp.contains(.DiscreteAverage) && finalOp.contains(.DiscreteAverage) {
+        } else if aggOp.contains(.discreteAverage) && finalOp.contains(.discreteAverage) {
             numeralValue = runningAgg[0] / Double(runningCnt)
-        } else if aggOp.contains(.DiscreteMin) && finalOp.contains(.DiscreteMin) {
+        } else if aggOp.contains(.discreteMin) && finalOp.contains(.discreteMin) {
             numeralValue = runningAgg[1]
-        } else if aggOp.contains(.DiscreteMax) && finalOp.contains(.DiscreteMax) {
+        } else if aggOp.contains(.discreteMax) && finalOp.contains(.discreteMax) {
             numeralValue = runningAgg[2]
         }
     }
 
-    public func query(stats: HKStatisticsOptions) -> Double? {
-        if ( stats.contains(.CumulativeSum) && aggOp.contains(.CumulativeSum) ) {
+    public func query(_ stats: HKStatisticsOptions) -> Double? {
+        if ( stats.contains(.cumulativeSum) && aggOp.contains(.cumulativeSum) ) {
             return runningAgg[0]
         }
-        if ( stats.contains(.DiscreteAverage) && aggOp.contains(.DiscreteAverage) ) {
+        if ( stats.contains(.discreteAverage) && aggOp.contains(.discreteAverage) ) {
             return runningAgg[0] / Double(runningCnt)
         }
-        if ( stats.contains(.DiscreteMin) && aggOp.contains(.DiscreteMin) ) {
+        if ( stats.contains(.discreteMin) && aggOp.contains(.discreteMin) ) {
             return runningAgg[1]
         }
-        if ( stats.contains(.DiscreteMax) && aggOp.contains(.DiscreteMax) ) {
+        if ( stats.contains(.discreteMax) && aggOp.contains(.discreteMax) ) {
             return runningAgg[2]
         }
         return nil
@@ -471,18 +471,22 @@ public struct MCAggregateSample : MCSample {
     public func count() -> Int { return runningCnt }
 
     // Encoding/decoding.
-    public static func encode(aggregate: MCAggregateSample) -> MCAggregateSampleCoding {
+    public static func encode(_ aggregate: MCAggregateSample) -> MCAggregateSampleCoding {
         return MCAggregateSampleCoding(aggregate: aggregate)
     }
 
-    public static func decode(aggregateEncoding: MCAggregateSampleCoding) -> MCAggregateSample? {
+    public static func decode(_ aggregateEncoding: MCAggregateSampleCoding) -> MCAggregateSample? {
         return aggregateEncoding.aggregate
     }
 }
 
-@available(iOS 9.0, *)
+//@available(iOS 9.0, *)
 public extension MCAggregateSample {
     public class MCAggregateSampleCoding: NSObject, NSCoding {
+//        public func encode(with aCoder: NSCoder) {
+//            <#code#>
+//        }
+
         var aggregate: MCAggregateSample?
 
         init(aggregate: MCAggregateSample) {
@@ -491,13 +495,14 @@ public extension MCAggregateSample {
         }
 
         required public init?(coder aDecoder: NSCoder) {
-            guard let startDate    = aDecoder.decodeObjectForKey("startDate")    as? NSDate         else { log.error("Failed to rebuild MCAggregateSample startDate"); aggregate = nil; super.init(); return nil }
-            guard let endDate      = aDecoder.decodeObjectForKey("endDate")      as? NSDate         else { log.error("Failed to rebuild MCAggregateSample endDate"); aggregate = nil; super.init(); return nil }
-            guard let numeralValue = aDecoder.decodeObjectForKey("numeralValue") as? Double?        else { log.error("Failed to rebuild MCAggregateSample numeralValue"); aggregate = nil; super.init(); return nil }
-            guard let hkType       = aDecoder.decodeObjectForKey("hkType")       as? HKSampleType?  else { log.error("Failed to rebuild MCAggregateSample hkType"); aggregate = nil; super.init(); return nil }
-            guard let aggOp        = aDecoder.decodeObjectForKey("aggOp")        as? UInt           else { log.error("Failed to rebuild MCAggregateSample aggOp"); aggregate = nil; super.init(); return nil }
-            guard let runningAgg   = aDecoder.decodeObjectForKey("runningAgg")   as? [Double]       else { log.error("Failed to rebuild MCAggregateSample runningAgg"); aggregate = nil; super.init(); return nil }
-            guard let runningCnt   = aDecoder.decodeObjectForKey("runningCnt")   as? Int            else { log.error("Failed to rebuild MCAggregateSample runningCnt"); aggregate = nil; super.init(); return nil }
+            guard let startDate    = aDecoder.decodeObject(forKey: "startDate")    as? Date         else { print("Failed to rebuild MCAggregateSample startDate"); aggregate = nil; super.init(); return nil }
+            guard let endDate      = aDecoder.decodeObject(forKey: "endDate")      as? Date         else { print("Failed to rebuild MCAggregateSample endDate"); aggregate = nil; super.init(); return nil }
+            guard let numeralValue = aDecoder.decodeObject(forKey: "numeralValue") as? Double?        else { print("Failed to rebuild MCAggregateSample numeralValue"); aggregate = nil; super.init(); return nil }
+            guard let hkType       = aDecoder.decodeObject(forKey: "hkType")       as? HKSampleType?  else { print("Failed to rebuild MCAggregateSample hkType"); aggregate = nil; super.init(); return nil }
+            guard let aggOp        = aDecoder.decodeObject(forKey: "aggOp")        as? UInt           else { print("Failed to rebuild MCAggregateSample aggOp"); aggregate = nil; super.init(); return nil }
+            guard let runningAgg   = aDecoder.decodeObject(forKey: "runningAgg")   as? [Double]       else { print("Failed to rebuild MCAggregateSample runningAgg"); aggregate = nil; super.init(); return nil }
+            guard let runningCnt   = aDecoder.decodeObject(forKey: "runningCnt")   as? Int            else { print("Failed to rebuild MCAggregateSample runningCnt"); aggregate = nil; super.init(); return nil
+        }
 
             aggregate = MCAggregateSample(startDate: startDate, endDate: endDate, numeralValue: numeralValue, hkType: hkType,
                                           aggOp: HKStatisticsOptions(rawValue: aggOp), runningAgg: runningAgg, runningCnt: runningCnt)
@@ -505,33 +510,33 @@ public extension MCAggregateSample {
             super.init()
         }
 
-        public func encodeWithCoder(aCoder: NSCoder) {
-            aCoder.encodeObject(aggregate!.startDate,      forKey: "startDate")
-            aCoder.encodeObject(aggregate!.endDate,        forKey: "endDate")
-            aCoder.encodeObject(aggregate!.numeralValue,   forKey: "numeralValue")
-            aCoder.encodeObject(aggregate!.hkType,         forKey: "hkType")
-            aCoder.encodeObject(aggregate!.aggOp.rawValue, forKey: "aggOp")
-            aCoder.encodeObject(aggregate!.runningAgg,     forKey: "runningAgg")
-            aCoder.encodeObject(aggregate!.runningCnt,     forKey: "runningCnt")
+        open func encode(with aCoder: NSCoder) {
+            aCoder.encode(aggregate!.startDate,      forKey: "startDate")
+            aCoder.encode(aggregate!.endDate,        forKey: "endDate")
+            aCoder.encode(aggregate!.numeralValue,   forKey: "numeralValue")
+            aCoder.encode(aggregate!.hkType,         forKey: "hkType")
+            aCoder.encode(aggregate!.aggOp.rawValue, forKey: "aggOp")
+            aCoder.encode(aggregate!.runningAgg,     forKey: "runningAgg")
+            aCoder.encode(aggregate!.runningCnt,     forKey: "runningCnt")
         }
     }
 }
 
-@available(iOS 9.0, *)
+//@available(iOS 9.0, *)
 public class MCAggregateArray: NSObject, NSCoding {
-    public var aggregates : [MCAggregateSample]
+    open var aggregates : [MCAggregateSample]
 
     init(aggregates: [MCAggregateSample]) {
         self.aggregates = aggregates
     }
 
     required public convenience init?(coder aDecoder: NSCoder) {
-        guard let aggs = aDecoder.decodeObjectForKey("aggregates") as? [MCAggregateSample.MCAggregateSampleCoding] else { return nil }
+        guard let aggs = aDecoder.decodeObject(forKey: "aggregates") as? [MCAggregateSample.MCAggregateSampleCoding] else { return nil }
         self.init(aggregates: aggs.flatMap({ return MCAggregateSample.decode($0) }))
     }
 
-    public func encodeWithCoder(aCoder: NSCoder) {
-        aCoder.encodeObject(aggregates.map { return MCAggregateSample.encode($0) }, forKey: "aggregates")
+    open func encode(with aCoder: NSCoder) {
+        aCoder.encode(aggregates.map { return MCAggregateSample.encode($0) }, forKey: "aggregates")
     }
 }
 
@@ -540,7 +545,7 @@ public class MCAggregateArray: NSObject, NSCoding {
 
 // Default aggregation for all subtypes of HKSampleType.
 
-@available(iOS 9.0, *)
+//@available(iOS 9.0, *)
 public extension HKSampleType {
     var aggregationOptions: HKStatisticsOptions {
         switch self {
@@ -563,46 +568,46 @@ public extension HKSampleType {
 }
 
 public extension HKCategoryType {
-    override var aggregationOptions: HKStatisticsOptions { return .DiscreteAverage }
+    override var aggregationOptions: HKStatisticsOptions { return .discreteAverage }
 }
 
 public extension HKCorrelationType {
-    override var aggregationOptions: HKStatisticsOptions { return .DiscreteAverage }
+    override var aggregationOptions: HKStatisticsOptions { return .discreteAverage }
 }
 
 public extension HKWorkoutType {
-    override var aggregationOptions: HKStatisticsOptions { return .CumulativeSum }
+    override var aggregationOptions: HKStatisticsOptions { return .cumulativeSum }
 }
 
 public extension HKQuantityType {
     override var aggregationOptions: HKStatisticsOptions {
         switch aggregationStyle {
-        case .Discrete:
-            return .DiscreteAverage
-        case .Cumulative:
-            return .CumulativeSum
+        case .discrete:
+            return .discreteAverage
+        case .cumulative:
+            return .cumulativeSum
         }
     }
 }
 
 // Duration aggregate for HKSample arrays.
 public extension Array where Element: HKSample {
-    public var sleepDuration: NSTimeInterval? {
+    public var sleepDuration: TimeInterval? {
         return filter { (sample) -> Bool in
             let categorySample = sample as! HKCategorySample
-            return categorySample.sampleType.identifier == HKCategoryTypeIdentifierSleepAnalysis
-                && categorySample.value == HKCategoryValueSleepAnalysis.Asleep.rawValue
-            }.map { (sample) -> NSTimeInterval in
-                return sample.endDate.timeIntervalSinceDate(sample.startDate)
+            return categorySample.sampleType.identifier == HKCategoryTypeIdentifier.sleepAnalysis.rawValue
+                && categorySample.value == HKCategoryValueSleepAnalysis.asleep.rawValue
+            }.map { (sample) -> TimeInterval in
+                return sample.endDate.timeIntervalSince(sample.startDate)
             }.reduce(0) { $0 + $1 }
     }
 
-    public var workoutDuration: NSTimeInterval? {
+    public var workoutDuration: TimeInterval? {
         return filter { (sample) -> Bool in
             let categorySample = sample as! HKWorkout
             return categorySample.sampleType.identifier == HKWorkoutTypeIdentifier
-            }.map { (sample) -> NSTimeInterval in
-                return sample.endDate.timeIntervalSinceDate(sample.startDate)
+            }.map { (sample) -> TimeInterval in
+                return sample.endDate.timeIntervalSince(sample.startDate)
             }.reduce(0) { $0 + $1 }
     }
 }
@@ -612,22 +617,22 @@ public extension Array where Element: HKSample {
  */
 extension HKStatistics: MCSample { }
 
-@available(iOS 9.0, *)
+//@available(iOS 9.0, *)
 public extension HKStatistics {
     var quantity: HKQuantity? {
         switch quantityType.aggregationStyle {
-        case .Discrete:
+        case .discrete:
             return averageQuantity()
-        case .Cumulative:
+        case .cumulative:
             return sumQuantity()
         }
     }
 
     public var numeralValue: Double? {
-        guard hkType?.defaultUnit != nil && quantity != nil else {
+        guard hkType?.defaultUnit != nil && HKQuantity.self != nil else {
             return nil
         }
-        return quantity!.doubleValueForUnit(hkType!.defaultUnit!)
+        return quantity!.doubleValue(for: hkType!.defaultUnit!)
     }
 
     public var hkType: HKSampleType? { return quantityType }
@@ -642,220 +647,220 @@ extension HKSample: MCSample { }
 @available(iOS 9.0, *)
 public extension HKSampleType {
 
-    public func unitForSystem(metric: Bool) -> HKUnit? {
+    public func unitForSystem(_ metric: Bool) -> HKUnit? {
         switch identifier {
-        case HKCategoryTypeIdentifierSleepAnalysis:
-            return HKUnit.hourUnit()
+        case HKCategoryTypeIdentifier.sleepAnalysis.rawValue:
+            return HKUnit.hour()
 
-        case HKCategoryTypeIdentifierAppleStandHour:
-            return HKUnit.hourUnit()
+        case HKCategoryTypeIdentifier.appleStandHour.rawValue:
+            return HKUnit.hour()
 
-        case HKCorrelationTypeIdentifierBloodPressure:
-            return HKUnit.millimeterOfMercuryUnit()
+        case HKCorrelationTypeIdentifier.bloodPressure.rawValue:
+            return HKUnit.millimeterOfMercury()
 
-        case HKQuantityTypeIdentifierActiveEnergyBurned:
-            return HKUnit.kilocalorieUnit()
+        case HKQuantityTypeIdentifier.activeEnergyBurned.rawValue:
+            return HKUnit.kilocalorie()
 
-        case HKQuantityTypeIdentifierBasalBodyTemperature:
-            return HKUnit.degreeFahrenheitUnit()
+        case HKQuantityTypeIdentifier.basalBodyTemperature.rawValue:
+            return HKUnit.degreeFahrenheit()
 
-        case HKQuantityTypeIdentifierBasalEnergyBurned:
-            return HKUnit.kilocalorieUnit()
+        case HKQuantityTypeIdentifier.basalEnergyBurned.rawValue:
+            return HKUnit.kilocalorie()
 
-        case HKQuantityTypeIdentifierBloodAlcoholContent:
-            return HKUnit.percentUnit()
+        case HKQuantityTypeIdentifier.bloodAlcoholContent.rawValue:
+            return HKUnit.percent()
 
-        case HKQuantityTypeIdentifierBloodGlucose:
-            return HKUnit.gramUnitWithMetricPrefix(.Milli).unitDividedByUnit(HKUnit.literUnitWithMetricPrefix(.Deci))
+        case HKQuantityTypeIdentifier.bloodGlucose.rawValue:
+            return HKUnit.gramUnit(with: .milli).unitDivided(by: HKUnit.literUnit(with: .deci))
 
-        case HKQuantityTypeIdentifierBloodPressureDiastolic:
-            return HKUnit.millimeterOfMercuryUnit()
+        case HKQuantityTypeIdentifier.bloodPressureDiastolic.rawValue:
+            return HKUnit.millimeterOfMercury()
 
-        case HKQuantityTypeIdentifierBloodPressureSystolic:
-            return HKUnit.millimeterOfMercuryUnit()
+        case HKQuantityTypeIdentifier.bloodPressureSystolic.rawValue:
+            return HKUnit.millimeterOfMercury()
 
-        case HKQuantityTypeIdentifierBodyFatPercentage:
-            return HKUnit.percentUnit()
+        case HKQuantityTypeIdentifier.bodyFatPercentage.rawValue:
+            return HKUnit.percent()
 
-        case HKQuantityTypeIdentifierBodyMass:
-            return metric ? HKUnit.gramUnitWithMetricPrefix(.Kilo) : HKUnit.poundUnit()
+        case HKQuantityTypeIdentifier.bodyMass.rawValue:
+            return metric ? HKUnit.gramUnit(with: .kilo) : HKUnit.pound()
 
-        case HKQuantityTypeIdentifierBodyMassIndex:
-            return HKUnit.countUnit()
+        case HKQuantityTypeIdentifier.bodyMassIndex.rawValue:
+            return HKUnit.count()
 
-        case HKQuantityTypeIdentifierBodyTemperature:
-            return HKUnit.degreeFahrenheitUnit()
+        case HKQuantityTypeIdentifier.bodyTemperature.rawValue:
+            return HKUnit.degreeFahrenheit()
 
-        case HKQuantityTypeIdentifierDietaryBiotin:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Micro)
+        case HKQuantityTypeIdentifier.dietaryBiotin.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.micro)
 
-        case HKQuantityTypeIdentifierDietaryCaffeine:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryCaffeine.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryCalcium:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryCalcium.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryCarbohydrates:
-            return HKUnit.gramUnit()
+        case HKQuantityTypeIdentifier.dietaryCarbohydrates.rawValue:
+            return HKUnit.gram()
 
-        case HKQuantityTypeIdentifierDietaryCholesterol:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryCholesterol.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryChloride:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryChloride.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryChromium:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Micro)
+        case HKQuantityTypeIdentifier.dietaryChromium.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.micro)
 
-        case HKQuantityTypeIdentifierDietaryCopper:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryCopper.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryEnergyConsumed:
-            return HKUnit.kilocalorieUnit()
+        case HKQuantityTypeIdentifier.dietaryEnergyConsumed.rawValue:
+            return HKUnit.kilocalorie()
 
-        case HKQuantityTypeIdentifierDietaryFatMonounsaturated:
-            return HKUnit.gramUnit()
+        case HKQuantityTypeIdentifier.dietaryFatMonounsaturated.rawValue:
+            return HKUnit.gram()
 
-        case HKQuantityTypeIdentifierDietaryFatPolyunsaturated:
-            return HKUnit.gramUnit()
+        case HKQuantityTypeIdentifier.dietaryFatPolyunsaturated.rawValue:
+            return HKUnit.gram()
 
-        case HKQuantityTypeIdentifierDietaryFatSaturated:
-            return HKUnit.gramUnit()
+        case HKQuantityTypeIdentifier.dietaryFatSaturated.rawValue:
+            return HKUnit.gram()
 
-        case HKQuantityTypeIdentifierDietaryFatTotal:
-            return HKUnit.gramUnit()
+        case HKQuantityTypeIdentifier.dietaryFatTotal.rawValue:
+            return HKUnit.gram()
 
-        case HKQuantityTypeIdentifierDietaryFiber:
-            return HKUnit.gramUnit()
+        case HKQuantityTypeIdentifier.dietaryFiber.rawValue:
+            return HKUnit.gram()
 
-        case HKQuantityTypeIdentifierDietaryFolate:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Micro)
+        case HKQuantityTypeIdentifier.dietaryFolate.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.micro)
 
-        case HKQuantityTypeIdentifierDietaryIodine:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Micro)
+        case HKQuantityTypeIdentifier.dietaryIodine.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.micro)
 
-        case HKQuantityTypeIdentifierDietaryIron:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryIron.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryMagnesium:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryMagnesium.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryManganese:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryManganese.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryMolybdenum:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Micro)
+        case HKQuantityTypeIdentifier.dietaryMolybdenum.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.micro)
 
-        case HKQuantityTypeIdentifierDietaryNiacin:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryNiacin.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryPantothenicAcid:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryPantothenicAcid.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryPhosphorus:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryPhosphorus.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryPotassium:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryPotassium.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryProtein:
-            return HKUnit.gramUnit()
+        case HKQuantityTypeIdentifier.dietaryProtein.rawValue:
+            return HKUnit.gram()
 
-        case HKQuantityTypeIdentifierDietaryRiboflavin:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryRiboflavin.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietarySelenium:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Micro)
+        case HKQuantityTypeIdentifier.dietarySelenium.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.micro)
 
-        case HKQuantityTypeIdentifierDietarySodium:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietarySodium.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietarySugar:
-            return HKUnit.gramUnit()
+        case HKQuantityTypeIdentifier.dietarySugar.rawValue:
+            return HKUnit.gram()
 
-        case HKQuantityTypeIdentifierDietaryThiamin:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryThiamin.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryVitaminA:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Micro)
+        case HKQuantityTypeIdentifier.dietaryVitaminA.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.micro)
 
-        case HKQuantityTypeIdentifierDietaryVitaminB12:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Micro)
+        case HKQuantityTypeIdentifier.dietaryVitaminB12.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.micro)
 
-        case HKQuantityTypeIdentifierDietaryVitaminB6:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryVitaminB6.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryVitaminC:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryVitaminC.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryVitaminD:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Micro)
+        case HKQuantityTypeIdentifier.dietaryVitaminD.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.micro)
 
-        case HKQuantityTypeIdentifierDietaryVitaminE:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryVitaminE.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryVitaminK:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Micro)
+        case HKQuantityTypeIdentifier.dietaryVitaminK.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.micro)
 
-        case HKQuantityTypeIdentifierDietaryWater:
-            return HKUnit.literUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryWater.rawValue:
+            return HKUnit.literUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryZinc:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryZinc.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDistanceWalkingRunning:
-            return metric ? HKUnit.meterUnitWithMetricPrefix(HKMetricPrefix.Kilo) : HKUnit.mileUnit()
+        case HKQuantityTypeIdentifier.distanceWalkingRunning.rawValue:
+            return metric ? HKUnit.meterUnit(with: HKMetricPrefix.kilo) : HKUnit.mile()
 
-        case HKQuantityTypeIdentifierElectrodermalActivity:
-            return HKUnit.siemenUnitWithMetricPrefix(HKMetricPrefix.Micro)
+        case HKQuantityTypeIdentifier.electrodermalActivity.rawValue:
+            return HKUnit.siemenUnit(with: HKMetricPrefix.micro)
 
-        case HKQuantityTypeIdentifierFlightsClimbed:
-            return HKUnit.countUnit()
+        case HKQuantityTypeIdentifier.flightsClimbed.rawValue:
+            return HKUnit.count()
 
-        case HKQuantityTypeIdentifierForcedExpiratoryVolume1:
-            return HKUnit.literUnit()
+        case HKQuantityTypeIdentifier.forcedExpiratoryVolume1.rawValue:
+            return HKUnit.liter()
 
-        case HKQuantityTypeIdentifierForcedVitalCapacity:
-            return HKUnit.literUnit()
+        case HKQuantityTypeIdentifier.forcedVitalCapacity.rawValue:
+            return HKUnit.liter()
 
-        case HKQuantityTypeIdentifierHeight:
-            return metric ? HKUnit.meterUnitWithMetricPrefix(HKMetricPrefix.Centi) : HKUnit.footUnit()
+        case HKQuantityTypeIdentifier.height.rawValue:
+            return metric ? HKUnit.meterUnit(with: HKMetricPrefix.centi) : HKUnit.foot()
 
-        case HKQuantityTypeIdentifierInhalerUsage:
-            return HKUnit.countUnit()
+        case HKQuantityTypeIdentifier.inhalerUsage.rawValue:
+            return HKUnit.count()
 
-        case HKQuantityTypeIdentifierLeanBodyMass:
-            return metric ? HKUnit.gramUnitWithMetricPrefix(.Kilo) : HKUnit.poundUnit()
+        case HKQuantityTypeIdentifier.leanBodyMass.rawValue:
+            return metric ? HKUnit.gramUnit(with: .kilo) : HKUnit.pound()
 
-        case HKQuantityTypeIdentifierHeartRate:
-            return HKUnit.countUnit().unitDividedByUnit(HKUnit.minuteUnit())
+        case HKQuantityTypeIdentifier.heartRate.rawValue:
+            return HKUnit.count().unitDivided(by: HKUnit.minute())
 
-        case HKQuantityTypeIdentifierNikeFuel:
-            return HKUnit.countUnit()
+        case HKQuantityTypeIdentifier.nikeFuel.rawValue:
+            return HKUnit.count()
 
-        case HKQuantityTypeIdentifierNumberOfTimesFallen:
-            return HKUnit.countUnit()
+        case HKQuantityTypeIdentifier.numberOfTimesFallen.rawValue:
+            return HKUnit.count()
 
-        case HKQuantityTypeIdentifierOxygenSaturation:
-            return HKUnit.percentUnit()
+        case HKQuantityTypeIdentifier.oxygenSaturation.rawValue:
+            return HKUnit.percent()
             
-        case HKQuantityTypeIdentifierPeakExpiratoryFlowRate:
-            return HKUnit.literUnit().unitDividedByUnit(HKUnit.minuteUnit())
+        case HKQuantityTypeIdentifier.peakExpiratoryFlowRate.rawValue:
+            return HKUnit.liter().unitDivided(by: HKUnit.minute())
             
-        case HKQuantityTypeIdentifierPeripheralPerfusionIndex:
-            return HKUnit.percentUnit()
+        case HKQuantityTypeIdentifier.peripheralPerfusionIndex.rawValue:
+            return HKUnit.percent()
             
-        case HKQuantityTypeIdentifierRespiratoryRate:
-            return HKUnit.countUnit().unitDividedByUnit(HKUnit.minuteUnit())
+        case HKQuantityTypeIdentifier.respiratoryRate.rawValue:
+            return HKUnit.count().unitDivided(by: HKUnit.minute())
             
-        case HKQuantityTypeIdentifierStepCount:
-            return HKUnit.countUnit()
+        case HKQuantityTypeIdentifier.stepCount.rawValue:
+            return HKUnit.count()
             
-        case HKQuantityTypeIdentifierUVExposure:
-            return HKUnit.countUnit()
+        case HKQuantityTypeIdentifier.uvExposure.rawValue:
+            return HKUnit.count()
             
         case HKWorkoutTypeIdentifier:
-            return HKUnit.hourUnit()
+            return HKUnit.hour()
             
         default:
             return nil
@@ -869,218 +874,218 @@ public extension HKSampleType {
     // Units used by the MC webservice.
     public var serviceUnit: HKUnit? {
         switch identifier {
-        case HKCategoryTypeIdentifierSleepAnalysis:
-            return HKUnit.secondUnit()
+        case HKCategoryTypeIdentifier.sleepAnalysis.rawValue:
+            return HKUnit.second()
 
-        case HKCategoryTypeIdentifierAppleStandHour:
-            return HKUnit.secondUnit()
+        case HKCategoryTypeIdentifier.appleStandHour.rawValue:
+            return HKUnit.second()
 
-        case HKCorrelationTypeIdentifierBloodPressure:
-            return HKUnit.millimeterOfMercuryUnit()
+        case HKCorrelationTypeIdentifier.bloodPressure.rawValue:
+            return HKUnit.millimeterOfMercury()
 
-        case HKQuantityTypeIdentifierActiveEnergyBurned:
-            return HKUnit.kilocalorieUnit()
+        case HKQuantityTypeIdentifier.activeEnergyBurned.rawValue:
+            return HKUnit.kilocalorie()
 
-        case HKQuantityTypeIdentifierBasalBodyTemperature:
-            return HKUnit.degreeFahrenheitUnit()
+        case HKQuantityTypeIdentifier.basalBodyTemperature.rawValue:
+            return HKUnit.degreeFahrenheit()
 
-        case HKQuantityTypeIdentifierBasalEnergyBurned:
-            return HKUnit.kilocalorieUnit()
+        case HKQuantityTypeIdentifier.basalEnergyBurned.rawValue:
+            return HKUnit.kilocalorie()
 
-        case HKQuantityTypeIdentifierBloodAlcoholContent:
-            return HKUnit.percentUnit()
+        case HKQuantityTypeIdentifier.bloodAlcoholContent.rawValue:
+            return HKUnit.percent()
 
-        case HKQuantityTypeIdentifierBloodGlucose:
-            return HKUnit.gramUnitWithMetricPrefix(.Milli).unitDividedByUnit(HKUnit.literUnitWithMetricPrefix(.Deci))
+        case HKQuantityTypeIdentifier.bloodGlucose.rawValue:
+            return HKUnit.gramUnit(with: .milli).unitDivided(by: HKUnit.literUnit(with: .deci))
 
-        case HKQuantityTypeIdentifierBloodPressureDiastolic:
-            return HKUnit.millimeterOfMercuryUnit()
+        case HKQuantityTypeIdentifier.bloodPressureDiastolic.rawValue:
+            return HKUnit.millimeterOfMercury()
 
-        case HKQuantityTypeIdentifierBloodPressureSystolic:
-            return HKUnit.millimeterOfMercuryUnit()
+        case HKQuantityTypeIdentifier.bloodPressureSystolic.rawValue:
+            return HKUnit.millimeterOfMercury()
 
-        case HKQuantityTypeIdentifierBodyFatPercentage:
-            return HKUnit.percentUnit()
+        case HKQuantityTypeIdentifier.bodyFatPercentage.rawValue:
+            return HKUnit.percent()
 
-        case HKQuantityTypeIdentifierBodyMass:
-            return HKUnit.gramUnitWithMetricPrefix(.Kilo)
+        case HKQuantityTypeIdentifier.bodyMass.rawValue:
+            return HKUnit.gramUnit(with: .kilo)
 
-        case HKQuantityTypeIdentifierBodyMassIndex:
-            return HKUnit.countUnit()
+        case HKQuantityTypeIdentifier.bodyMassIndex.rawValue:
+            return HKUnit.count()
 
-        case HKQuantityTypeIdentifierBodyTemperature:
-            return HKUnit.degreeFahrenheitUnit()
+        case HKQuantityTypeIdentifier.bodyTemperature.rawValue:
+            return HKUnit.degreeFahrenheit()
 
-        case HKQuantityTypeIdentifierDietaryBiotin:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Micro)
+        case HKQuantityTypeIdentifier.dietaryBiotin.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.micro)
 
-        case HKQuantityTypeIdentifierDietaryCaffeine:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryCaffeine.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryCalcium:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryCalcium.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryCarbohydrates:
-            return HKUnit.gramUnit()
+        case HKQuantityTypeIdentifier.dietaryCarbohydrates.rawValue:
+            return HKUnit.gram()
 
-        case HKQuantityTypeIdentifierDietaryCholesterol:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryCholesterol.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryChloride:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryChloride.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryChromium:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Micro)
+        case HKQuantityTypeIdentifier.dietaryChromium.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.micro)
 
-        case HKQuantityTypeIdentifierDietaryCopper:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryCopper.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryEnergyConsumed:
-            return HKUnit.kilocalorieUnit()
+        case HKQuantityTypeIdentifier.dietaryEnergyConsumed.rawValue:
+            return HKUnit.kilocalorie()
 
-        case HKQuantityTypeIdentifierDietaryFatMonounsaturated:
-            return HKUnit.gramUnit()
+        case HKQuantityTypeIdentifier.dietaryFatMonounsaturated.rawValue:
+            return HKUnit.gram()
 
-        case HKQuantityTypeIdentifierDietaryFatPolyunsaturated:
-            return HKUnit.gramUnit()
+        case HKQuantityTypeIdentifier.dietaryFatPolyunsaturated.rawValue:
+            return HKUnit.gram()
 
-        case HKQuantityTypeIdentifierDietaryFatSaturated:
-            return HKUnit.gramUnit()
+        case HKQuantityTypeIdentifier.dietaryFatSaturated.rawValue:
+            return HKUnit.gram()
 
-        case HKQuantityTypeIdentifierDietaryFatTotal:
-            return HKUnit.gramUnit()
+        case HKQuantityTypeIdentifier.dietaryFatTotal.rawValue:
+            return HKUnit.gram()
 
-        case HKQuantityTypeIdentifierDietaryFiber:
-            return HKUnit.gramUnit()
+        case HKQuantityTypeIdentifier.dietaryFiber.rawValue:
+            return HKUnit.gram()
 
-        case HKQuantityTypeIdentifierDietaryFolate:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Micro)
+        case HKQuantityTypeIdentifier.dietaryFolate.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.micro)
 
-        case HKQuantityTypeIdentifierDietaryIodine:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Micro)
+        case HKQuantityTypeIdentifier.dietaryIodine.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.micro)
 
-        case HKQuantityTypeIdentifierDietaryIron:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryIron.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryMagnesium:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryMagnesium.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryManganese:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryManganese.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryMolybdenum:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Micro)
+        case HKQuantityTypeIdentifier.dietaryMolybdenum.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.micro)
 
-        case HKQuantityTypeIdentifierDietaryNiacin:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryNiacin.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryPantothenicAcid:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryPantothenicAcid.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryPhosphorus:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryPhosphorus.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryPotassium:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryPotassium.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryProtein:
-            return HKUnit.gramUnit()
+        case HKQuantityTypeIdentifier.dietaryProtein.rawValue:
+            return HKUnit.gram()
 
-        case HKQuantityTypeIdentifierDietaryRiboflavin:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryRiboflavin.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietarySelenium:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Micro)
+        case HKQuantityTypeIdentifier.dietarySelenium.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.micro)
 
-        case HKQuantityTypeIdentifierDietarySodium:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietarySodium.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietarySugar:
-            return HKUnit.gramUnit()
+        case HKQuantityTypeIdentifier.dietarySugar.rawValue:
+            return HKUnit.gram()
 
-        case HKQuantityTypeIdentifierDietaryThiamin:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryThiamin.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryVitaminA:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Micro)
+        case HKQuantityTypeIdentifier.dietaryVitaminA.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.micro)
 
-        case HKQuantityTypeIdentifierDietaryVitaminB12:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Micro)
+        case HKQuantityTypeIdentifier.dietaryVitaminB12.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.micro)
 
-        case HKQuantityTypeIdentifierDietaryVitaminB6:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryVitaminB6.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryVitaminC:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryVitaminC.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryVitaminD:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Micro)
+        case HKQuantityTypeIdentifier.dietaryVitaminD.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.micro)
 
-        case HKQuantityTypeIdentifierDietaryVitaminE:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryVitaminE.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryVitaminK:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Micro)
+        case HKQuantityTypeIdentifier.dietaryVitaminK.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.micro)
 
-        case HKQuantityTypeIdentifierDietaryWater:
-            return HKUnit.literUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryWater.rawValue:
+            return HKUnit.literUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDietaryZinc:
-            return HKUnit.gramUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.dietaryZinc.rawValue:
+            return HKUnit.gramUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierDistanceWalkingRunning:
-            return HKUnit.meterUnit()
+        case HKQuantityTypeIdentifier.distanceWalkingRunning.rawValue:
+            return HKUnit.meter()
 
-        case HKQuantityTypeIdentifierElectrodermalActivity:
-            return HKUnit.siemenUnitWithMetricPrefix(HKMetricPrefix.Micro)
+        case HKQuantityTypeIdentifier.electrodermalActivity.rawValue:
+            return HKUnit.siemenUnit(with: HKMetricPrefix.micro)
 
-        case HKQuantityTypeIdentifierFlightsClimbed:
-            return HKUnit.countUnit()
+        case HKQuantityTypeIdentifier.flightsClimbed.rawValue:
+            return HKUnit.count()
 
-        case HKQuantityTypeIdentifierForcedExpiratoryVolume1:
-            return HKUnit.literUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.forcedExpiratoryVolume1.rawValue:
+            return HKUnit.literUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierForcedVitalCapacity:
-            return HKUnit.literUnitWithMetricPrefix(HKMetricPrefix.Milli)
+        case HKQuantityTypeIdentifier.forcedVitalCapacity.rawValue:
+            return HKUnit.literUnit(with: HKMetricPrefix.milli)
 
-        case HKQuantityTypeIdentifierHeight:
-            return HKUnit.meterUnitWithMetricPrefix(HKMetricPrefix.Centi)
+        case HKQuantityTypeIdentifier.height.rawValue:
+            return HKUnit.meterUnit(with: HKMetricPrefix.centi)
 
-        case HKQuantityTypeIdentifierInhalerUsage:
-            return HKUnit.countUnit()
+        case HKQuantityTypeIdentifier.inhalerUsage.rawValue:
+            return HKUnit.count()
 
-        case HKQuantityTypeIdentifierLeanBodyMass:
-            return HKUnit.gramUnitWithMetricPrefix(.Kilo)
+        case HKQuantityTypeIdentifier.leanBodyMass.rawValue:
+            return HKUnit.gramUnit(with: .kilo)
 
-        case HKQuantityTypeIdentifierHeartRate:
-            return HKUnit.countUnit().unitDividedByUnit(HKUnit.minuteUnit())
+        case HKQuantityTypeIdentifier.heartRate.rawValue:
+            return HKUnit.count().unitDivided(by: HKUnit.minute())
 
-        case HKQuantityTypeIdentifierNikeFuel:
-            return HKUnit.countUnit()
+        case HKQuantityTypeIdentifier.nikeFuel.rawValue:
+            return HKUnit.count()
 
-        case HKQuantityTypeIdentifierNumberOfTimesFallen:
-            return HKUnit.countUnit()
+        case HKQuantityTypeIdentifier.numberOfTimesFallen.rawValue:
+            return HKUnit.count()
 
-        case HKQuantityTypeIdentifierOxygenSaturation:
-            return HKUnit.percentUnit()
+        case HKQuantityTypeIdentifier.oxygenSaturation.rawValue:
+            return HKUnit.percent()
             
-        case HKQuantityTypeIdentifierPeakExpiratoryFlowRate:
-            return HKUnit.literUnit().unitDividedByUnit(HKUnit.minuteUnit())
+        case HKQuantityTypeIdentifier.peakExpiratoryFlowRate.rawValue:
+            return HKUnit.liter().unitDivided(by: HKUnit.minute())
             
-        case HKQuantityTypeIdentifierPeripheralPerfusionIndex:
-            return HKUnit.percentUnit()
+        case HKQuantityTypeIdentifier.peripheralPerfusionIndex.rawValue:
+            return HKUnit.percent()
             
-        case HKQuantityTypeIdentifierRespiratoryRate:
-            return HKUnit.countUnit().unitDividedByUnit(HKUnit.minuteUnit())
+        case HKQuantityTypeIdentifier.respiratoryRate.rawValue:
+            return HKUnit.count().unitDivided(by: HKUnit.minute())
             
-        case HKQuantityTypeIdentifierStepCount:
-            return HKUnit.countUnit()
+        case HKQuantityTypeIdentifier.stepCount.rawValue:
+            return HKUnit.count()
             
-        case HKQuantityTypeIdentifierUVExposure:
-            return HKUnit.countUnit()
+        case HKQuantityTypeIdentifier.uvExposure.rawValue:
+            return HKUnit.count()
             
         case HKWorkoutTypeIdentifier:
-            return HKUnit.secondUnit()
+            return HKUnit.second()
             
         default:
             return nil
@@ -1088,38 +1093,38 @@ public extension HKSampleType {
     }
 }
 
-@available(iOS 9.0, *)
+//@available(iOS 9.0, *)
 public extension HKSample {
     public var numeralValue: Double? {
         guard hkType?.defaultUnit != nil else {
             return nil
         }
-        switch sampleType {
+        switch HKSampleType.self {
         case is HKCategoryType:
             switch sampleType.identifier {
-            case HKCategoryTypeIdentifierSleepAnalysis:
+            case HKCategoryTypeIdentifier.sleepAnalysis.rawValue:
                 let sample = (self as! HKCategorySample)
-                let secs = HKQuantity(unit: HKUnit.secondUnit(), doubleValue: sample.endDate.timeIntervalSinceDate(sample.startDate))
-                return secs.doubleValueForUnit(hkType!.defaultUnit!)
+                let secs = HKQuantity(unit: HKUnit.second(), doubleValue: sample.endDate.timeIntervalSince(sample.startDate))
+                return secs.doubleValue(for: hkType!.defaultUnit!)
             default:
                 return nil
             }
 
         case is HKCorrelationType:
             switch sampleType.identifier {
-            case HKCorrelationTypeIdentifierBloodPressure:
-                return ((self as! HKCorrelation).objects.first as! HKQuantitySample).quantity.doubleValueForUnit(hkType!.defaultUnit!)
+            case HKCorrelationTypeIdentifier.bloodPressure.rawValue:
+                return ((self as! HKCorrelation).objects.first as! HKQuantitySample).quantity.doubleValue(for: hkType!.defaultUnit!)
             default:
                 return nil
             }
 
         case is HKWorkoutType:
             let sample = (self as! HKWorkout)
-            let secs = HKQuantity(unit: HKUnit.secondUnit(), doubleValue: sample.duration)
-            return secs.doubleValueForUnit(hkType!.defaultUnit!)
+            let secs = HKQuantity(unit: HKUnit.second(), doubleValue: sample.duration)
+            return secs.doubleValue(for: hkType!.defaultUnit!)
 
         case is HKQuantityType:
-            return (self as! HKQuantitySample).quantity.doubleValueForUnit(hkType!.defaultUnit!)
+            return (self as! HKQuantitySample).quantity.doubleValue(for: hkType!.defaultUnit!)
 
         default:
             return nil
@@ -1130,230 +1135,230 @@ public extension HKSample {
 }
 
 // Readable type description.
-@available(iOS 9.0, *)
+//@available(iOS 9.0, *)
 public extension HKSampleType {
     public var displayText: String? {
         switch identifier {
-        case HKCategoryTypeIdentifierSleepAnalysis:
+        case HKCategoryTypeIdentifier.sleepAnalysis.rawValue:
             return NSLocalizedString("Sleep", comment: "HealthKit data type")
 
-        case HKCategoryTypeIdentifierAppleStandHour:
+        case HKCategoryTypeIdentifier.appleStandHour.rawValue:
             return NSLocalizedString("Hours Standing", comment: "HealthKit data type")
 
-        case HKCharacteristicTypeIdentifierBloodType:
+        case HKCharacteristicTypeIdentifier.bloodType.rawValue:
             return NSLocalizedString("Blood Type", comment: "HealthKit data type")
 
-        case HKCharacteristicTypeIdentifierBiologicalSex:
+        case HKCharacteristicTypeIdentifier.biologicalSex.rawValue:
             return NSLocalizedString("Gender", comment: "HealthKit data type")
 
-        case HKCharacteristicTypeIdentifierFitzpatrickSkinType:
+        case HKCharacteristicTypeIdentifier.fitzpatrickSkinType.rawValue:
             return NSLocalizedString("Skin Type", comment: "HealthKit data type")
 
-        case HKCorrelationTypeIdentifierBloodPressure:
+        case HKCorrelationTypeIdentifier.bloodPressure.rawValue:
             return NSLocalizedString("Blood Pressure", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierActiveEnergyBurned:
+        case HKQuantityTypeIdentifier.activeEnergyBurned.rawValue:
             return NSLocalizedString("Active Energy Burned", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierBasalEnergyBurned:
+        case HKQuantityTypeIdentifier.basalEnergyBurned.rawValue:
             return NSLocalizedString("Basal Energy Burned", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierBloodGlucose:
+        case HKQuantityTypeIdentifier.bloodGlucose.rawValue:
             return NSLocalizedString("Blood Glucose", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierBloodPressureDiastolic:
+        case HKQuantityTypeIdentifier.bloodPressureDiastolic.rawValue:
             return NSLocalizedString("Blood Pressure Diastolic", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierBloodPressureSystolic:
+        case HKQuantityTypeIdentifier.bloodPressureSystolic.rawValue:
             return NSLocalizedString("Blood Pressure Systolic", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierBodyMass:
+        case HKQuantityTypeIdentifier.bodyMass.rawValue:
             return NSLocalizedString("Weight", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierBodyMassIndex:
+        case HKQuantityTypeIdentifier.bodyMassIndex.rawValue:
             return NSLocalizedString("Body Mass Index", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryCaffeine:
+        case HKQuantityTypeIdentifier.dietaryCaffeine.rawValue:
             return NSLocalizedString("Caffeine", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryCarbohydrates:
+        case HKQuantityTypeIdentifier.dietaryCarbohydrates.rawValue:
             return NSLocalizedString("Carbohydrates", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryCholesterol:
+        case HKQuantityTypeIdentifier.dietaryCholesterol.rawValue:
             return NSLocalizedString("Cholesterol", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryEnergyConsumed:
+        case HKQuantityTypeIdentifier.dietaryEnergyConsumed.rawValue:
             return NSLocalizedString("Food calories", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryFatMonounsaturated:
+        case HKQuantityTypeIdentifier.dietaryFatMonounsaturated.rawValue:
             return NSLocalizedString("Monounsaturated Fat", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryFatPolyunsaturated:
+        case HKQuantityTypeIdentifier.dietaryFatPolyunsaturated.rawValue:
             return NSLocalizedString("Polyunsaturated Fat", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryFatSaturated:
+        case HKQuantityTypeIdentifier.dietaryFatSaturated.rawValue:
             return NSLocalizedString("Saturated Fat", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryFatTotal:
+        case HKQuantityTypeIdentifier.dietaryFatTotal.rawValue:
             return NSLocalizedString("Fat", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryProtein:
+        case HKQuantityTypeIdentifier.dietaryProtein.rawValue:
             return NSLocalizedString("Protein", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietarySodium:
+        case HKQuantityTypeIdentifier.dietarySodium.rawValue:
             return NSLocalizedString("Salt", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietarySugar:
+        case HKQuantityTypeIdentifier.dietarySugar.rawValue:
             return NSLocalizedString("Sugar", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryWater:
+        case HKQuantityTypeIdentifier.dietaryWater.rawValue:
             return NSLocalizedString("Water", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDistanceWalkingRunning:
+        case HKQuantityTypeIdentifier.distanceWalkingRunning.rawValue:
             return NSLocalizedString("Walking and Running Distance", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierFlightsClimbed:
+        case HKQuantityTypeIdentifier.flightsClimbed.rawValue:
             return NSLocalizedString("Flights Climbed", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierHeartRate:
+        case HKQuantityTypeIdentifier.heartRate.rawValue:
             return NSLocalizedString("Heart Rate", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierStepCount:
+        case HKQuantityTypeIdentifier.stepCount.rawValue:
             return NSLocalizedString("Step Count", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierUVExposure:
+        case HKQuantityTypeIdentifier.uvExposure.rawValue:
             return NSLocalizedString("UV Exposure", comment: "HealthKit data type")
 
         case HKWorkoutTypeIdentifier:
             return NSLocalizedString("Workouts/Meals", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierBasalBodyTemperature:
+        case HKQuantityTypeIdentifier.basalBodyTemperature.rawValue:
             return NSLocalizedString("Basal Body Temperature", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierBloodAlcoholContent:
+        case HKQuantityTypeIdentifier.bloodAlcoholContent.rawValue:
             return NSLocalizedString("Blood Alcohol", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierBodyFatPercentage:
+        case HKQuantityTypeIdentifier.bodyFatPercentage.rawValue:
             return NSLocalizedString("", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierBodyTemperature:
+        case HKQuantityTypeIdentifier.bodyTemperature.rawValue:
             return NSLocalizedString("Body Temperature", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryBiotin:
+        case HKQuantityTypeIdentifier.dietaryBiotin.rawValue:
             return NSLocalizedString("Biotin", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryCalcium:
+        case HKQuantityTypeIdentifier.dietaryCalcium.rawValue:
             return NSLocalizedString("Calcium", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryChloride:
+        case HKQuantityTypeIdentifier.dietaryChloride.rawValue:
             return NSLocalizedString("Chloride", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryChromium:
+        case HKQuantityTypeIdentifier.dietaryChromium.rawValue:
             return NSLocalizedString("Chromium", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryCopper:
+        case HKQuantityTypeIdentifier.dietaryCopper.rawValue:
             return NSLocalizedString("Copper", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryFiber:
+        case HKQuantityTypeIdentifier.dietaryFiber.rawValue:
             return NSLocalizedString("Fiber", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryFolate:
+        case HKQuantityTypeIdentifier.dietaryFolate.rawValue:
             return NSLocalizedString("Folate", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryIodine:
+        case HKQuantityTypeIdentifier.dietaryIodine.rawValue:
             return NSLocalizedString("Iodine", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryIron:
+        case HKQuantityTypeIdentifier.dietaryIron.rawValue:
             return NSLocalizedString("Iron", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryMagnesium:
+        case HKQuantityTypeIdentifier.dietaryMagnesium.rawValue:
             return NSLocalizedString("Magnesium", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryManganese:
+        case HKQuantityTypeIdentifier.dietaryManganese.rawValue:
             return NSLocalizedString("Manganese", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryMolybdenum:
+        case HKQuantityTypeIdentifier.dietaryMolybdenum.rawValue:
             return NSLocalizedString("Molybdenum", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryNiacin:
+        case HKQuantityTypeIdentifier.dietaryNiacin.rawValue:
             return NSLocalizedString("Niacin", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryPantothenicAcid:
+        case HKQuantityTypeIdentifier.dietaryPantothenicAcid.rawValue:
             return NSLocalizedString("Pantothenic Acid", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryPhosphorus:
+        case HKQuantityTypeIdentifier.dietaryPhosphorus.rawValue:
             return NSLocalizedString("Phosphorus", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryPotassium:
+        case HKQuantityTypeIdentifier.dietaryPotassium.rawValue:
             return NSLocalizedString("Potassium", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryRiboflavin:
+        case HKQuantityTypeIdentifier.dietaryRiboflavin.rawValue:
             return NSLocalizedString("Riboflavin", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietarySelenium:
+        case HKQuantityTypeIdentifier.dietarySelenium.rawValue:
             return NSLocalizedString("Selenium", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryThiamin:
+        case HKQuantityTypeIdentifier.dietaryThiamin.rawValue:
             return NSLocalizedString("Thiamin", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryVitaminA:
+        case HKQuantityTypeIdentifier.dietaryVitaminA.rawValue:
             return NSLocalizedString("Vitamin A", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryVitaminB12:
+        case HKQuantityTypeIdentifier.dietaryVitaminB12.rawValue:
             return NSLocalizedString("Vitamin B12", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryVitaminB6:
+        case HKQuantityTypeIdentifier.dietaryVitaminB6.rawValue:
             return NSLocalizedString("Vitamin B6", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryVitaminC:
+        case HKQuantityTypeIdentifier.dietaryVitaminC.rawValue:
             return NSLocalizedString("Vitamin C", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryVitaminD:
+        case HKQuantityTypeIdentifier.dietaryVitaminD.rawValue:
             return NSLocalizedString("Vitamin D", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryVitaminE:
+        case HKQuantityTypeIdentifier.dietaryVitaminE.rawValue:
             return NSLocalizedString("Vitamin E", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryVitaminK:
+        case HKQuantityTypeIdentifier.dietaryVitaminK.rawValue:
             return NSLocalizedString("Vitamin K", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierDietaryZinc:
+        case HKQuantityTypeIdentifier.dietaryZinc.rawValue:
             return NSLocalizedString("Zinc", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierElectrodermalActivity:
+        case HKQuantityTypeIdentifier.electrodermalActivity.rawValue:
             return NSLocalizedString("Electrodermal Activity", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierForcedExpiratoryVolume1:
+        case HKQuantityTypeIdentifier.forcedExpiratoryVolume1.rawValue:
             return NSLocalizedString("FEV1", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierForcedVitalCapacity:
+        case HKQuantityTypeIdentifier.forcedVitalCapacity.rawValue:
             return NSLocalizedString("FVC", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierHeight:
+        case HKQuantityTypeIdentifier.height.rawValue:
             return NSLocalizedString("Height", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierInhalerUsage:
+        case HKQuantityTypeIdentifier.inhalerUsage.rawValue:
             return NSLocalizedString("Inhaler Usage", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierLeanBodyMass:
+        case HKQuantityTypeIdentifier.leanBodyMass.rawValue:
             return NSLocalizedString("Lean Body Mass", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierNikeFuel:
+        case HKQuantityTypeIdentifier.nikeFuel.rawValue:
             return NSLocalizedString("Nike Fuel", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierNumberOfTimesFallen:
+        case HKQuantityTypeIdentifier.numberOfTimesFallen.rawValue:
             return NSLocalizedString("Times Fallen", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierOxygenSaturation:
+        case HKQuantityTypeIdentifier.oxygenSaturation.rawValue:
             return NSLocalizedString("Blood Oxygen Saturation", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierPeakExpiratoryFlowRate:
+        case HKQuantityTypeIdentifier.peakExpiratoryFlowRate.rawValue:
             return NSLocalizedString("PEF", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierPeripheralPerfusionIndex:
+        case HKQuantityTypeIdentifier.peripheralPerfusionIndex.rawValue:
             return NSLocalizedString("PPI", comment: "HealthKit data type")
 
-        case HKQuantityTypeIdentifierRespiratoryRate:
+        case HKQuantityTypeIdentifier.respiratoryRate.rawValue:
             return NSLocalizedString("RR", comment: "HealthKit data type")
 
         default:
@@ -1361,3 +1366,4 @@ public extension HKSampleType {
         }
     }
 }
+
