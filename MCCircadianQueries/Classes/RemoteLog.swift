@@ -2,13 +2,14 @@
 //  RemoteLog.swift
 //  MCCircadianQueries
 //
-//  Created by Yanif Ahmad on 1/15/17.
-//  Copyright © 2017 Yanif Ahmad, Tom Woolf. All rights reserved.
+//  Created by Yanif Ahmad on 1/15/17. 
+//  Copyright © 2017 Yanif Ahmad, Tom Woolf. All rights reserved. 
 //
+
 
 import Foundation
 import Async
-import LogKit
+//import LogKit
 import SwiftyUserDefaults
 
 private let RLEnabledKey    = "RLEnabledKey"
@@ -17,39 +18,41 @@ private let RLConfigNameKey = "RLConfigNameKey"
 private let RLConfigDataKey = "RLConfigDataKey"
 
 public enum LogType {
-    case Local
-    case Remote
+    case local
+    case remote
 }
 
 public let MCInitLogConfigName = "Minimal"
 
 private let MCDeviceId = "<no-id>"
 
-private let MCFormatter: String -> LXEntryFormatter = { deviceId in return LXEntryFormatter({ e in
-    String(format: "%@ [%@] %@ %@ <%@:%d> %@", e.dateTime, e.level.uppercaseString, deviceId, e.functionName, e.fileName, e.lineNumber, e.message)
+private let MCFormatter: (String) -> LXEntryFormatter = { deviceId in return LXEntryFormatter({ e in
+    String(format: "%@ [%@] %@ %@ <%@:%d> %@", e.dateTime, e.level.uppercased(), deviceId, e.functionName, e.fileName, e.lineNumber, e.message)
 })}
 
-public class RemoteLog {
+open class RemoteLog {
 
-    public static let sharedInstance = RemoteLog()
+    open static let sharedInstance = RemoteLog()
 
-    private var log : LXLogger = LXLogger(endpoints: [LXConsoleEndpoint(synchronous: false, entryFormatter: MCFormatter(MCDeviceId))])
+    fileprivate var log : LXLogger = LXLogger(endpoints: [LXConsoleEndpoint(synchronous: false, entryFormatter: MCFormatter(MCDeviceId))])
         // Start with an asynchronous logger to handle races w/ other threads during app initialization.
 
-    private var console = LXConsoleEndpoint(entryFormatter: MCFormatter(MCDeviceId))
+//    fileprivate var console = Levels.LXConsoleEndpoint(entryFormatter: MCFormatter(MCDeviceId))
+//    fileprivate var console = LXConsoleEndpoint(synchronous: false, minimumPriorityLevel: .all, dateFormatter: .standardFormatter(), entryFormatter: .standardFormatter())
+    fileprivate var console = LXConsoleEndpoint(synchronous: false, minimumPriorityLevel: .all, dateFormatter: .standardFormatter(), entryFormatter: .standardFormatter())
         // Handle to a synchronous console logger, which should never be deinit'ed due to it closing stderr.
 
-    public var url : NSURL! = nil
-    public var logType: LogType = .Local
+    open var url : URL! = nil
+    open var logType: LogType = .local
 
-    public var configName: String = MCInitLogConfigName
-    public var config: [String: AnyObject] = [:]
-    public var logModules : [String: String] = [:]
+    open var configName: String = MCInitLogConfigName
+    open var config: [String: AnyObject] = [:]
+    open var logModules : [String: String] = [:]
 
-    private var deviceId: String = MCDeviceId
+    fileprivate var deviceId: String = MCDeviceId
 
     // A serialized queue for log configuration.
-    public let configQueue = dispatch_queue_create("LogQueue", DISPATCH_QUEUE_SERIAL)
+    open let configQueue = DispatchQueue(label: "LogQueue", attributes: [])
 
     init() {
         self.loadURL(true)
@@ -57,37 +60,41 @@ public class RemoteLog {
         self.loadRemote(true)
     }
 
-    public func setDeviceId(deviceId: String) {
-        Async.customQueue(configQueue) {
+    open func setDeviceId(_ deviceId: String) {
+        Async.custom(queue: configQueue) {
             self.deviceId = deviceId
             self.console.entryFormatter = MCFormatter(self.deviceId)
         }
     }
 
     func setLogger() {
-        Async.customQueue(configQueue) {
+        Async.custom(queue: configQueue) {
             switch self.logType {
-            case .Local:
+            case .local:
+//                self.log = LXLogger(endpoints: [self.console])
                 self.log = LXLogger(endpoints: [self.console])
-
-            case .Remote:
+            case .remote:
                 if let url = self.url {
+//                    self.log = LXLogger(endpoints: [
                     self.log = LXLogger(endpoints: [
                         self.console,
-                        LXHTTPEndpoint(URL: url, HTTPMethod: "POST", entryFormatter: MCFormatter(self.deviceId))
+//                        LXHTTPEndpoint(URL: url, HTTPMethod: "POST", entryFormatter: MCFormatter(self.deviceId))
+//                        LXHTTPEndpoint(URL: url, HTTPMethod: "POST", successCodes: {200, 201, 202, 204}, sessionConfiguration: .defaultSessionConfiguration(), minimumPriorityLevel: .All, dateFormatter: .standardFormatter(), entryFormatter: .standardFormatter())
+                        LXHTTPEndpoint(URL: url, HTTPMethod: "POST", sessionConfiguration: .default, minimumPriorityLevel: .all, dateFormatter: .standardFormatter(), entryFormatter: .standardFormatter())
                     ])
                 } else {
+//                    self.log = LXLogger(endpoints: [self.console])
                     self.log = LXLogger(endpoints: [self.console])
-                    self.logType = .Local
+                    self.logType = .local
                     self.error("Could not switch to remote logging (invalid URL)")
                 }
             }
         }
     }
 
-    public func loadURL(initial: Bool = false) {
+    open func loadURL(_ initial: Bool = false) {
         if Defaults.hasKey(RLTokenKey) {
-            if let s = Defaults.stringForKey(RLTokenKey) where s.characters.count > 0 {
+            if let s = Defaults.string(forKey: RLTokenKey), s.characters.count > 0 {
                 self.setURL(s, initial: initial)
             } else {
                 Defaults.remove(RLTokenKey)
@@ -96,12 +103,12 @@ public class RemoteLog {
         }
     }
 
-    public func setURL(token: String, initial: Bool = false) {
+    open func setURL(_ token: String, initial: Bool = false) {
         if token.characters.count > 0 {
-            if let u = NSURL(string: "http://logs-01.loggly.com/inputs/\(token)/tag/http") {
-                Async.customQueue(configQueue) {
+            if let u = URL(string: "http://logs-01.loggly.com/inputs/\(token)/tag/http") {
+                Async.custom(queue: configQueue) {
                     if !initial {
-                        Defaults.setObject(token, forKey: RLTokenKey)
+                        Defaults.set(token, forKey: RLTokenKey)
                         Defaults.synchronize()
                     }
                     self.url = u
@@ -110,24 +117,24 @@ public class RemoteLog {
         }
     }
 
-    public func loadRemote(initial: Bool = false) {
-        var remote = self.logType == .Remote
+    open func loadRemote(_ initial: Bool = false) {
+        var remote = self.logType == .remote
         if Defaults.hasKey(RLEnabledKey) {
-            remote = Defaults.boolForKey(RLEnabledKey)
+            remote = Defaults.bool(forKey: RLEnabledKey)
         }
 
         self.setRemote(remote, initial: initial)
     }
 
-    public func setRemote(on: Bool, initial: Bool = false) {
+    open func setRemote(_ on: Bool, initial: Bool = false) {
         if on != remote() || initial {
-            Async.customQueue(configQueue) {
+            Async.custom(queue: configQueue) {
                 self.info("Remote logging \(on) (initial: \(initial))")
                 if !initial {
-                    Defaults.setBool(on, forKey: RLEnabledKey)
+                    Defaults.set(on, forKey: RLEnabledKey)
                     Defaults.synchronize()
                 }
-                self.logType = on ? .Remote : .Local
+                self.logType = on ? .remote : .local
                 self.setLogger()
             }
         }
@@ -136,45 +143,46 @@ public class RemoteLog {
         }
     }
 
-    public func remote() -> Bool {
-        return logType == .Remote
+    open func remote() -> Bool {
+        return logType == .remote
     }
 
-    public func priority(p: String) -> LXPriorityLevel? {
-        switch p.lowercaseString {
+//    open func priority(_ p: String) -> LXPriorityLevel? {
+    open func priority(_ p: String) -> LXPriorityLevel? {
+        switch p.lowercased() {
         case "all":
-            return .All
+            return .all
 
         case "debug":
-            return .Debug
+            return .debug
 
         case "info":
-            return .Info
+            return .info
 
         case "notice":
-            return .Notice
+            return .notice
 
         case "warning":
-            return .Warning
+            return .warning
 
         case "error":
-            return .Error
+            return .error
 
         case "critical":
-            return .Critical
+            return .critical
 
         case "none":
-            return .None
+            return .none
 
         default:
             return nil
         }
     }
 
-    public func loadLogConfig(initial: Bool = false) {
+    open func loadLogConfig(_ initial: Bool = false) {
         if Defaults.hasKey(RLConfigNameKey) && Defaults.hasKey(RLConfigDataKey) {
-            if let n = Defaults.stringForKey(RLConfigNameKey), cfg = Defaults.dictionaryForKey(RLConfigDataKey) {
-                self.setLogConfig(n, cfg: cfg, initial: initial)
+            if let n = Defaults.string(forKey: RLConfigNameKey), let cfg = Defaults.dictionary(forKey: RLConfigDataKey) {
+                self.setLogConfig(n, cfg: cfg as [String : AnyObject], initial: initial)
             } else {
                 Defaults.remove(RLConfigNameKey)
                 Defaults.remove(RLConfigDataKey)
@@ -183,11 +191,11 @@ public class RemoteLog {
         }
     }
 
-    public func setLogConfig(name: String, cfg: [String: AnyObject], initial: Bool = false) {
-        Async.customQueue(configQueue) {
+    open func setLogConfig(_ name: String, cfg: [String: AnyObject], initial: Bool = false) {
+        Async.custom(queue: configQueue) {
             if !initial {
-                Defaults.setObject(name, forKey: RLConfigNameKey)
-                Defaults.setObject(cfg, forKey: RLConfigDataKey)
+                Defaults.set(name, forKey: RLConfigNameKey)
+ //               Defaults.set(cfg, forKey: RLConfigDataKey)
                 Defaults.synchronize()
             }
             self.configName = name
@@ -195,16 +203,19 @@ public class RemoteLog {
         }
     }
 
-    public func setLogModules(modules: [String: String]) {
-        Async.customQueue(configQueue) { self.logModules = modules }
+    open func setLogModules(_ modules: [String: String]) {
+        Async.custom(queue: configQueue) { self.logModules = modules }
     }
 
-    func logMsg(msg: String, feature: String = "", level: LXPriorityLevel, fnName: String, fPath: String, ln: Int, col: Int) {
-        var globalLevel : LXPriorityLevel = .Info
-        if let g = config["default"] as? String, p = priority(g) {
+//    func logMsg(_ msg: String, feature: String = "", level: LXPriorityLevel, fnName: String, fPath: String, ln: Int, col: Int) {
+        func logMsg(_ msg: String, feature: String = " ", level: LXPriorityLevel, fnName: String, fPath: String, ln: Int, col: Int) {
+//        var globalLevel : LXPriorityLevel = .info
+        var globalLevel : LXPriorityLevel = .info
+        if let g = config["default"] as? String, let p = priority(g) {
             globalLevel = p
         }
 
+//        var testLevel : LXPriorityLevel = globalLevel
         var testLevel : LXPriorityLevel = globalLevel
 
         let fName = (fPath as NSString).lastPathComponent
@@ -212,8 +223,10 @@ public class RemoteLog {
         // Log level matching hierarchy: module x feature => module => global
         if let mName = logModules[fName] {
             if let fConfig = config[mName] as? [String:Int] {
+//                let mDefaultLevel = LXPriorityLevel(rawValue: fConfig["default"] ?? globalLevel.rawValue) ?? globalLevel
                 let mDefaultLevel = LXPriorityLevel(rawValue: fConfig["default"] ?? globalLevel.rawValue) ?? globalLevel
-                if let mfLevel = LXPriorityLevel(rawValue: fConfig[feature] ?? mDefaultLevel.rawValue) where feature.characters.count > 0 {
+//                if let mfLevel = LXPriorityLevel(rawValue: fConfig[feature] ?? mDefaultLevel.rawValue), feature.characters.count > 0 {
+                if let mfLevel = LXPriorityLevel(rawValue: fConfig[feature] ?? mDefaultLevel.rawValue), feature.characters.count > 0 {
                     testLevel = mfLevel
                 } else {
                     testLevel = mDefaultLevel
@@ -226,16 +239,16 @@ public class RemoteLog {
 
         if level >= testLevel {
             switch level {
-            case .Debug:
+            case .debug:
                 log.debug(msg, functionName: fnName, filePath: fPath, lineNumber: ln, columnNumber: col)
 
-            case .Info:
+            case .info:
                 log.info(msg, functionName: fnName, filePath: fPath, lineNumber: ln, columnNumber: col)
 
-            case .Warning:
+            case .warning:
                 log.warning(msg, functionName: fnName, filePath: fPath, lineNumber: ln, columnNumber: col)
 
-            case .Error:
+            case .error:
                 log.error(msg, functionName: fnName, filePath: fPath, lineNumber: ln, columnNumber: col)
 
             default:
@@ -244,19 +257,19 @@ public class RemoteLog {
         }
     }
 
-    public func debug(msg: String, feature: String = "", fnName: String = #function, fPath: String = #file, ln: Int = #line, col: Int = #column) {
-        logMsg(msg, feature: feature, level: .Debug, fnName: fnName, fPath: fPath, ln: ln, col: col)
+    open func debug(_ msg: String, feature: String = "", fnName: String = #function, fPath: String = #file, ln: Int = #line, col: Int = #column) {
+        logMsg(msg, feature: feature, level: .debug, fnName: fnName, fPath: fPath, ln: ln, col: col)
     }
 
-    public func info(msg: String, feature: String = "", fnName: String = #function, fPath: String = #file, ln: Int = #line, col: Int = #column) {
-        logMsg(msg, feature: feature, level: .Info, fnName: fnName, fPath: fPath, ln: ln, col: col)
+    open func info(_ msg: String, feature: String = "", fnName: String = #function, fPath: String = #file, ln: Int = #line, col: Int = #column) {
+        logMsg(msg, feature: feature, level: .info, fnName: fnName, fPath: fPath, ln: ln, col: col)
     }
 
-    public func warning(msg: String, feature: String = "", fnName: String = #function, fPath: String = #file, ln: Int = #line, col: Int = #column) {
-        logMsg(msg, feature: feature, level: .Warning, fnName: fnName, fPath: fPath, ln: ln, col: col)
+    open func warning(_ msg: String, feature: String = "", fnName: String = #function, fPath: String = #file, ln: Int = #line, col: Int = #column) {
+        logMsg(msg, feature: feature, level: .warning, fnName: fnName, fPath: fPath, ln: ln, col: col)
     }
     
-    public func error(msg: String, feature: String = "", fnName: String = #function, fPath: String = #file, ln: Int = #line, col: Int = #column) {
-        logMsg(msg, feature: feature, level: .Error, fnName: fnName, fPath: fPath, ln: ln, col: col)
+    open func error(_ msg: String, feature: String = "", fnName: String = #function, fPath: String = #file, ln: Int = #line, col: Int = #column) {
+        logMsg(msg, feature: feature, level: .error, fnName: fnName, fPath: fPath, ln: ln, col: col)
     }
 }

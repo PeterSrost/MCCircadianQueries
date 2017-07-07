@@ -363,18 +363,19 @@ public struct MCAggregateSample : MCSample {
     }
 
     public mutating func rsum(_ sample: MCSample) {
-        runningAgg[0] += sample.numeralValue!
-        runningCnt += 1
+        print("value for sample \(sample)")
+        if let amount = sample.numeralValue {   runningAgg[0] += amount
+            runningCnt += 1 }
     }
 
     public mutating func rmin(_ sample: MCSample) {
-        runningAgg[1] = min(runningAgg[1], sample.numeralValue!)
-        runningCnt += 1
+        if let amount = sample.numeralValue { runningAgg[1] = min(runningAgg[1], amount)
+            runningCnt += 1 }
     }
 
     public mutating func rmax(_ sample: MCSample) {
-        runningAgg[2] = max(runningAgg[2], sample.numeralValue!)
-        runningCnt += 1
+        if let amount = sample.numeralValue {runningAgg[2] = max(runningAgg[2], amount)
+            runningCnt += 1 }
     }
 
     public mutating func incrOp(_ sample: MCSample) {
@@ -483,9 +484,6 @@ public struct MCAggregateSample : MCSample {
 //@available(iOS 9.0, *)
 public extension MCAggregateSample {
     public class MCAggregateSampleCoding: NSObject, NSCoding {
-//        public func encode(with aCoder: NSCoder) {
-//            <#code#>
-//        }
 
         var aggregate: MCAggregateSample?
 
@@ -506,6 +504,7 @@ public extension MCAggregateSample {
 
             aggregate = MCAggregateSample(startDate: startDate, endDate: endDate, numeralValue: numeralValue, hkType: hkType,
                                           aggOp: HKStatisticsOptions(rawValue: aggOp), runningAgg: runningAgg, runningCnt: runningCnt)
+            print("aggregate is: \(aggregate))")
 
             super.init()
         }
@@ -629,7 +628,7 @@ public extension HKStatistics {
     }
 
     public var numeralValue: Double? {
-        guard hkType?.defaultUnit != nil && HKQuantity.self != nil else {
+        guard hkType?.defaultUnit != nil && quantity.self != nil else {
             return nil
         }
         return quantity!.doubleValue(for: hkType!.defaultUnit!)
@@ -1366,4 +1365,3 @@ public extension HKSampleType {
         }
     }
 }
-

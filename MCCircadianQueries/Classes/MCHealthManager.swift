@@ -11,18 +11,20 @@ import HealthKit
 import Async
 import SwiftDate
 import AwesomeCache
+import SwiftyUserDefaults
+
 
 // Typealiases
-public typealias HMAuthorizationBlock  = (_ success: Bool, _ error: NSError?) -> Void
-public typealias HMSampleBlock         = (_ samples: [MCSample], _ error: NSError?) -> Void
-public typealias HMTypedSampleBlock    = (_ samples: [HKSampleType: [MCSample]], _ error: NSError?) -> Void
-public typealias HMAggregateBlock      = (_ aggregates: AggregateQueryResult, _ error: NSError?) -> Void
-public typealias HMCorrelationBlock    = ([MCSample], [MCSample], NSError?) -> Void
+public typealias HMAuthorizationBlock  = (_ success: Bool, _ error: Error?) -> Void
+public typealias HMSampleBlock         = (_ samples: [MCSample], _ error: Error?) -> Void
+public typealias HMTypedSampleBlock    = (_ samples: [HKSampleType: [MCSample]], _ error: Error?) -> Void
+public typealias HMAggregateBlock      = (_ aggregates: AggregateQueryResult, _ error: Error?) -> Void
+public typealias HMCorrelationBlock    = ([MCSample], [MCSample], Error?) -> Void
 
-public typealias HMCircadianBlock          = (_ intervals: [(Date, CircadianEvent)], _ error: NSError?) -> Void
-public typealias HMCircadianAggregateBlock = (_ aggregates: [(Date, Double)], _ error: NSError?) -> Void
-public typealias HMCircadianCategoryBlock  = (_ categories: [Int:Double], _ error: NSError?) -> Void
-public typealias HMFastingCorrelationBlock = ([(Date, Double, MCSample)], NSError?) -> Void
+public typealias HMCircadianBlock          = (_ intervals: [(Date, CircadianEvent)], _ error: Error?) -> Void
+public typealias HMCircadianAggregateBlock = (_ aggregates: [(Date, Double)], _ error: Error?) -> Void
+public typealias HMCircadianCategoryBlock  = (_ categories: [Int:Double], _ error: Error?) -> Void
+public typealias HMFastingCorrelationBlock = ([(Date, Double, MCSample)], Error?) -> Void
 
 public typealias HMAnchorQueryBlock    = (HKAnchoredObjectQuery, [HKSample]?, [HKDeletedObject]?, HKQueryAnchor?, Error?) -> Void
 public typealias HMAnchorSamplesBlock  = (_ added: [HKSample], _ deleted: [HKDeletedObject], _ newAnchor: HKQueryAnchor?, _ error: Error?) -> Void
@@ -97,7 +99,7 @@ open class MCHealthManager: NSObject {
     open var circadianCache: HMCircadianCache
 
     // Cache invalidation types for specific measures.
-    let measureInvalidationsByType: Set<String> = [HKQuantityTypeIdentifier.heartRate.rawValue, HKQuantityTypeIdentifier.stepCount.rawValue]
+    open var measureInvalidationsByType: Set<String> = [HKQuantityTypeIdentifier.heartRate.rawValue, HKQuantityTypeIdentifier.stepCount.rawValue]
 
     // Invalidation batching.
     fileprivate var anyMeasureNotifyTask: Async! = nil
@@ -131,7 +133,8 @@ open class MCHealthManager: NSObject {
             return
         }
 
-        healthKitStore.requestAuthorization(toShare: HMConstants.sharedInstance.healthKitTypesToWrite, read: HMConstants.sharedInstance.healthKitTypesToRead, completion: completion as! (Bool, Error?) -> Void)
+//        healthKitStore.requestAuthorization(toShare: HMConstants.sharedInstance.healthKitTypesToWrite, read: HMConstants.sharedInstance.healthKitTypesToRead, completion: completion as (Bool, Error?) -> Void)
+        healthKitStore.requestAuthorization(toShare: HMConstants.sharedInstance.healthKitTypesToWrite, read: HMConstants.sharedInstance.healthKitTypesToRead, completion: completion)
     }
 
     // MARK: - Helpers
@@ -217,7 +220,8 @@ open class MCHealthManager: NSObject {
         do {
             return try self.healthKitStore.biologicalSex()
         } catch {
-//            log.error("Failed to get biological sex.")
+//            log.debug("Failed to get biological sex.")
+            print("Failed to get biological sex.")
         }
         return nil
     }
@@ -232,10 +236,10 @@ open class MCHealthManager: NSObject {
         let query = HKSampleQuery(sampleType: sampleType, predicate: predicate, limit: limit, sortDescriptors: sortDescriptors) {
             (query, samples, error) -> Void in
             guard error == nil else {
-                completion([], error as NSError?)
+                completion([], error)
                 return
             }
-//            completion(samples?.map { $0 as! MCSample } ?? [], MetabolicCompassError.noInternet as NSError?)
+//            completion(samples?.map { $0 as! MCSample } ?? [], MetabolicCompassError.noInternet as Error?)
             completion(samples?.map { $0 as! MCSample } ?? [], nil)
         }
         healthKitStore.execute(query)
@@ -265,7 +269,7 @@ open class MCHealthManager: NSObject {
         let group = DispatchGroup()
         var samples = [HKSampleType: [MCSample]]()
 
-        let updateSamples :  (@escaping (MCSampleArray, CacheExpiry) -> Void, @escaping (NSError?) -> Void, HKSampleType, [MCSample], NSError?) -> Void = {
+        let updateSamples :  (@escaping (MCSampleArray, CacheExpiry) -> Void, @escaping (Error?) -> Void, HKSampleType, [MCSample], Error?) -> Void = {
             (success, failure, type, statistics, error) in
             guard error == nil else {
 //                log.error("Could not fetch recent samples for \(type.displayText): \  (error!.localizedDescription)")
@@ -284,7 +288,7 @@ open class MCHealthManager: NSObject {
             success(MCSampleArray(samples: statistics), .never)
         }
 
-        let onStatistic : (@escaping (MCSampleArray, CacheExpiry) -> Void, @escaping (NSError?) -> Void, HKSampleType) -> Void = { (success, failure, type) in
+        let onStatistic : (@escaping (MCSampleArray, CacheExpiry) -> Void, @escaping (Error?) -> Void, HKSampleType) -> Void = { (success, failure, type) in
             // First run a pilot query to retrieve the acquisition date of the last sample.
             self.fetchMostRecentSample(type) { (samples, error) in
                 guard error == nil else {
@@ -306,13 +310,13 @@ open class MCHealthManager: NSObject {
             }
         }
 
-        let onCatOrCorr : (@escaping (MCSampleArray, CacheExpiry) -> Void, @escaping (NSError?) -> Void, (HKSampleType)) ->Void = { (success, failure, type) in
+        let onCatOrCorr : (@escaping (MCSampleArray, CacheExpiry) -> Void, @escaping (Error?) -> Void, (HKSampleType)) ->Void = { (success, failure, type) in
             self.fetchMostRecentSample(type) { (statistics, error) in
                 updateSamples(success, failure, type, statistics, error)
             }
         }
 
-        let onWorkout : (@escaping (MCSampleArray, CacheExpiry) -> Void, @escaping (NSError?) -> Void, HKSampleType) -> Void = { (success, failure, type) in
+        let onWorkout : (@escaping (MCSampleArray, CacheExpiry) -> Void, @escaping (Error?) -> Void, HKSampleType) -> Void = { (success, failure, type) in
             self.fetchPreparationAndRecoveryWorkout(false) { (statistics, error) in
                 updateSamples(success, failure, type, statistics, error)
             }
@@ -327,13 +331,13 @@ open class MCHealthManager: NSObject {
             self.sampleCache.setObject(forKey:key,
                 cacheBlock: { (success, failure) in
                     if (type.identifier == HKCategoryTypeIdentifier.sleepAnalysis.rawValue) {
-                        onCatOrCorr(success, failure, type)
+                        onCatOrCorr(success, failure as! (Error?) -> Void, type)
                     } else if (type.identifier == HKCorrelationTypeIdentifier.bloodPressure.rawValue) {
-                        onCatOrCorr(success, failure, type)
+                        onCatOrCorr(success, failure as! (Error?) -> Void, type)
                     } else if (type.identifier == HKWorkoutTypeIdentifier) {
-                        onWorkout(success, failure, type)
+                        onWorkout(success, failure as! (Error?) -> Void, type)
                     } else {
-                        onStatistic(success, failure, type)
+                        onStatistic(success, failure as! (Error?) -> Void, type)
                     }
                 },
                 completion: { (samplesCoding, cacheHit, error) in
@@ -366,7 +370,7 @@ open class MCHealthManager: NSObject {
     {
         let group = DispatchGroup()
         var samplesByType = [HKSampleType: [MCSample]]()
-        var errors: [NSError] = []
+        var errors: [Error] = []
 
         let globalQueryStart = Date()
 //        log.debug("Query start", feature: "fetchSamples")
@@ -391,7 +395,7 @@ open class MCHealthManager: NSObject {
         }
 
         group.notify(queue: DispatchQueue.global(priority: DispatchQueue.GlobalQueuePriority.background)) {
-            let status = errors.count > 0 ? "Failure" : "Success"
+            _ = errors.count > 0 ? "Failure" : "Success"
 //            log.debug("\(status) time: \(Date.timeIntervalSince(globalQueryStart))", feature: "fetchSamples")
 
             if errors.count > 0 {
@@ -451,8 +455,8 @@ open class MCHealthManager: NSObject {
 
     // MARK: - Aggregate retrieval.
 
-    public func queryResultAsAggregates(_ aggOp: HKStatisticsOptions, result: AggregateQueryResult, error: NSError?,
-                                         completion: @escaping ([MCAggregateSample], NSError?) -> Void)
+    public func queryResultAsAggregates(_ aggOp: HKStatisticsOptions, result: AggregateQueryResult, error: Error?,
+                                         completion: @escaping ([MCAggregateSample], Error?) -> Void)
     {
         // MCAggregateSample.final is idempotent, thus this function can be called multiple times.
         let finalize: (MCAggregateSample) -> MCAggregateSample = { var agg = $0; agg.final(); return agg }
@@ -473,7 +477,7 @@ open class MCHealthManager: NSObject {
     }
 
     // Convert an AggregateQueryResult value into an MCSample array, and fire the completion.
-    public func queryResultAsSamples(_ result: AggregateQueryResult, error: NSError?, completion:  HMSampleBlock)
+    public func queryResultAsSamples(_ result: AggregateQueryResult, error: Error?, completion:  HMSampleBlock)
     {
         // MCAggregateSample.final is idempotent, thus this function can be called multiple times.
         let finalize: (MCAggregateSample) -> MCSample = { var agg = $0; agg.final(); return agg as MCSample }
@@ -520,8 +524,8 @@ open class MCHealthManager: NSObject {
     public func finalizePartialAggregation(_ aggUnit: Calendar.Component,
                                             aggOp: HKStatisticsOptions,
                                             result: AggregateQueryResult,
-                                            error: NSError?,
-                                            completion: @escaping (([MCAggregateSample], NSError?) -> Void))
+                                            error: Error?,
+                                            completion: @escaping (([MCAggregateSample], Error?) -> Void))
     {
         queryResultAsSamples(result, error: error) { (samples, error) in
             guard error == nil else {
@@ -536,7 +540,7 @@ open class MCHealthManager: NSObject {
     public func finalizePartialAggregationAsSamples(_ aggUnit: Calendar.Component,
                                                      aggOp: HKStatisticsOptions,
                                                      result: AggregateQueryResult,
-                                                     error: NSError?,
+                                                     error: Error?,
                                                      completion: @escaping HMSampleBlock)
     {
         queryResultAsSamples(result, error: error) { (samples, error) in
@@ -611,8 +615,8 @@ open class MCHealthManager: NSObject {
     // These ensure that there is a sample for every calendar unit contained within the given time period.
     public func queryResultAsAggregatesForPeriod(_ sampleType: HKSampleType, startDate: Date, endDate: Date,
                                                   aggUnit: Calendar.Component, aggOp: HKStatisticsOptions,
-                                                  result: AggregateQueryResult, error: NSError?,
-                                                  completion: @escaping ([MCAggregateSample], NSError?) -> Void)
+                                                  result: AggregateQueryResult, error: Error?,
+                                                  completion: @escaping ([MCAggregateSample], Error?) -> Void)
     {
         guard error == nil else {
             completion([], error)
@@ -639,7 +643,7 @@ open class MCHealthManager: NSObject {
 
     public func queryResultAsSamplesForPeriod(_ sampleType: HKSampleType, startDate: Date, endDate: Date,
                                                aggUnit: Calendar.Component, aggOp: HKStatisticsOptions,
-                                               result: AggregateQueryResult, error: NSError?, completion:  HMSampleBlock)
+                                               result: AggregateQueryResult, error: Error?, completion:  HMSampleBlock)
     {
         guard error == nil else {
             completion([], error)
@@ -662,14 +666,14 @@ open class MCHealthManager: NSObject {
             samples = []
         }
 
-        completion(samples, error as NSError?)
+        completion(samples, error)
     }
 
 
     public func finalizePartialAggregationForPeriod(_ sampleType: HKSampleType, startDate: Date, endDate: Date,
                                                      aggUnit: Calendar.Component, aggOp: HKStatisticsOptions,
-                                                     result: AggregateQueryResult, error: NSError?,
-                                                     completion: @escaping (([MCAggregateSample], NSError?) -> Void))
+                                                     result: AggregateQueryResult, error: Error?,
+                                                     completion: @escaping (([MCAggregateSample], Error?) -> Void))
     {
         queryResultAsSamples(result, error: error) { (samples, error) in
             guard error == nil else {
@@ -686,7 +690,7 @@ open class MCHealthManager: NSObject {
 
     public func finalizePartialAggregationAsSamplesForPeriod(_ sampleType: HKSampleType, startDate: Date, endDate: Date,
                                                               aggUnit: Calendar.Component, aggOp: HKStatisticsOptions,
-                                                              result: AggregateQueryResult, error: NSError?,
+                                                              result: AggregateQueryResult, error: Error?,
                                                               completion: @escaping HMSampleBlock)
     {
         queryResultAsSamples(result, error: error) { (samples, error) in
@@ -719,7 +723,7 @@ open class MCHealthManager: NSObject {
         fetchSamplesOfType(sampleType, predicate: predicate, limit: limit, sortDescriptors: sortDescriptors) { samples, error in
             guard error == nil else {
 //                log.debug("Failure time: \(NSDate.timeIntervalSinceDate(globalQueryStart))", feature: "fetchSampleAggregatesOfType")
-                completion(.aggregatedSamples([]), error as NSError?)
+                completion(.aggregatedSamples([]), error)
                 return
             }
             let byPeriod = self.aggregateByPeriod(aggUnit, aggOp: aggOp, samples: samples)
@@ -801,7 +805,7 @@ open class MCHealthManager: NSObject {
                     guard error == nil else {
 //                        log.error("Failed to fetch \(sampleType) statistics: \(error!)", feature: "fetchAggregatesOfType")
 //                        log.debug("Failure time: \(NSDate.timeIntervalSinceDate(globalQueryStart))", feature: "fetchAggregatesOfType")
-                        completion(.none, error as NSError?)
+                        completion(.none, error)
                         return
                     }
 //                    log.debug("Success time: \(NSDate.timeIntervalSinceDate(globalQueryStart))", feature: "fetchAggregatesOfType")
@@ -852,9 +856,9 @@ open class MCHealthManager: NSObject {
 
         aggregateCache.setObject(forKey:key, cacheBlock: { success, failure in
             self.fetchAggregatesOfType(sampleType, predicate: predicate, aggUnit: aggUnit, aggOp: aggOp) {
-                self.queryResultAsAggregates(aggOp, result: $0, error: $1 as NSError?) { (aggregates, error) in
+                self.queryResultAsAggregates(aggOp, result: $0, error: $1) { (aggregates, error) in
                     guard error == nil else {
-                        failure(error as NSError?)
+                        failure(error)
                         return
                     }
 //                    log.debug("Caching aggregates for \(key)", feature: "cache:getStatisticsOfTypeForPeriod")
@@ -909,9 +913,9 @@ open class MCHealthManager: NSObject {
         let byDay = sampleType.aggregationOptions == .cumulativeSum
 
         aggregateCache.setObject(forKey:key, cacheBlock: { success, failure in
-            let doCache : ( ([MCAggregateSample], NSError?)) -> Void = {(aggregates, error) in
+            let doCache : ( ([MCAggregateSample], Error?)) -> Void = {(aggregates, error) in
                 guard error == nil else {
-                    failure(error)
+                    failure(error as! NSError)
                     return
                 }
 //                log.debug("Caching daily aggregates for \(key)", feature:        "cache:getDailyStatisticsOfTypeForPeriod")
@@ -921,14 +925,14 @@ open class MCHealthManager: NSObject {
             self.fetchAggregatesOfType(sampleType, predicate: predicate, aggUnit: byDay ? .day : aggUnit, aggOp: byDay ? .cumulativeSum : aggOp) {
                 if byDay {
                     self.finalizePartialAggregationForPeriod(sampleType, startDate: startDate, endDate: endDate,
-                                                             aggUnit: aggUnit, aggOp: aggOp, result: $0, error: $1)
-                    { _,_ in }
-//                    { doCache($0, $1) }
+                                                             aggUnit: aggUnit, aggOp: aggOp, result: $0, error: $1, completion: {($0, $1)})
+//                    { _,_ in }
+//                    doCache($0, $1)
                 } else {
                     self.queryResultAsAggregatesForPeriod(sampleType, startDate: startDate, endDate: endDate,
-                                                          aggUnit: aggUnit, aggOp: aggOp, result: $0, error: $1)
-                    { _,_ in }
-//                    { doCache($0, $1) }
+                                                          aggUnit: aggUnit, aggOp: aggOp, result: $0, error: $1, completion: {($0, $1)})
+//                    { _,_ in }
+//                    doCache($0, $1)
                 }
             }
         }, completion: {object, isLoadedFromCache, error in
@@ -944,7 +948,7 @@ open class MCHealthManager: NSObject {
     // Returns the extreme values over a predefined period.
     public func fetchMinMaxOfTypeForPeriod(_ sampleType: HKSampleType,
                                            period: HealthManagerStatisticsRangeType,
-                                           completion: @escaping ([MCSample], [MCSample], NSError?) -> Void)
+                                           completion: @escaping ([MCSample], [MCSample], Error?) -> Void)
     {
         let (predicate, startDate, endDate, aggUnit) = periodAggregation(period)
 
@@ -954,7 +958,7 @@ open class MCHealthManager: NSObject {
 
         fetchAggregatesOfType(sampleType, predicate: predicate, aggUnit: aggUnit, aggOp: [.discreteMin, .discreteMax]) {
             self.queryResultAsAggregatesForPeriod(sampleType, startDate: startDate, endDate: endDate,
-                                                  aggUnit: aggUnit, aggOp: [.discreteMin, .discreteMax], result: $0, error: $1 as NSError?)
+                                                  aggUnit: aggUnit, aggOp: [.discreteMin, .discreteMax], result: $0, error: $1)
             { (aggregates, error) in
                 guard error == nil else {
                     completion([], [], error)
@@ -969,7 +973,7 @@ open class MCHealthManager: NSObject {
     public func getMinMaxOfTypeForPeriod(_ keyPrefix: String,
                                          sampleType: HKSampleType,
                                          period: HealthManagerStatisticsRangeType,
-                                         completion: @escaping ([MCSample], [MCSample], NSError?) -> Void)
+                                         completion: @escaping ([MCSample], [MCSample], Error?) -> Void)
     {
         let aggOp: HKStatisticsOptions = [.discreteMin, .discreteMax]
         let (predicate, startDate, endDate, aggUnit) = periodAggregation(period)
@@ -982,10 +986,10 @@ open class MCHealthManager: NSObject {
         aggregateCache.setObject(forKey:key, cacheBlock: { success, failure in
             self.fetchAggregatesOfType(sampleType, predicate: predicate, aggUnit: aggUnit, aggOp: aggOp) {
                 self.queryResultAsAggregatesForPeriod(sampleType, startDate: startDate, endDate: endDate,
-                                                      aggUnit: aggUnit, aggOp: aggOp, result: $0, error: $1 as NSError?)
+                                                      aggUnit: aggUnit, aggOp: aggOp, result: $0, error: $1)
                 { (aggregates, error) in
                     guard error == nil else {
-                        failure(error as NSError?)
+                        failure(error as! NSError)
                         return
                     }
 //                    log.debug("Caching minmax aggregates for \(key) ", feature: "cache:getMinMaxOfTypeForPeriod")
@@ -1038,7 +1042,7 @@ open class MCHealthManager: NSObject {
         group.enter()
         fetchStatisticsOfType(type2, predicate: pred2) { (results, error) -> Void in
             guard error == nil else {
-                completion([], [], error as! NSError?)
+                completion([], [], error)
                 group.leave()
                 return
             }
@@ -1051,7 +1055,7 @@ open class MCHealthManager: NSObject {
                 let desc = results1 == nil ? (results2 == nil ? "LHS and RHS" : "LHS") : "RHS"
 //                let err = MetabolicCompassError.invalidStatistics
                 let err = NSError(domain: HMErrorDomain, code: 1048576, userInfo: [NSLocalizedDescriptionKey: "Invalid \(desc) statistics"])
-                completion([], [], err as NSError?)
+                completion([], [], err)
                 return
             }
             var zipped = intersect(results1!, arr2: results2!)
@@ -1109,9 +1113,9 @@ open class MCHealthManager: NSObject {
 
         let queryGroup = DispatchGroup()
         var queryResults: [Int: [Event]] = [:]
-        var queryErrors: [NSError?] = []
+        var queryErrors: [Error?] = []
 
-        let globalQueryStart = Date()
+        _ = Date()
 //        log.debug("Query start", feature: "fetchCircadianEventIntervals")
 
         let cacheExpiryDate = Date() + 1.months
@@ -1131,7 +1135,7 @@ open class MCHealthManager: NSObject {
             let queryStart = Date()
 //            log.debug("Subquery \(queryIndex) start", feature: "fetchCircadianEventIntervals")
 
-            let runQuery : (@escaping([Event], NSError?) -> Void) -> Void = { runCompletion in
+            let runQuery : (@escaping([Event], Error?) -> Void) -> Void = { runCompletion in
                 self.fetchSamples(typesAndPredicates) { (events, error) -> Void in
 
 //                    log.debug("Subquery \(queryIndex) return time: \(NSDate.timeIntervalSinceDate(queryStart))", feature: "fetchCircadianEventIntervals")
@@ -1196,7 +1200,7 @@ open class MCHealthManager: NSObject {
 
                 circadianCache.setObject(forKey:cacheKey, cacheBlock: { success, failure in
                     runQuery { (events, error) in
-                        guard error == nil else { failure(error as NSError?); return }
+                        guard error == nil else { failure(error as Error? as! NSError); return }
                         success(MCCircadianEventArray(events: events), .date(cacheExpiryDate))
                     }
                 }, completion: { object, isLoadedFromCache, error in
@@ -1232,12 +1236,12 @@ open class MCHealthManager: NSObject {
 //            log.debug("Query return time: \(Date.timeIntervalSince(globalQueryStart))", feature: "fetchCircadianEventIntervals")
 
             guard queryErrors.isEmpty else {
-                completion([], queryErrors.first! as NSError?)
+                completion([], queryErrors.first!)
                 return
             }
 
             var sortedEvents: [Event] = []
-            var mergeError: NSError! = nil
+            var mergeError: Error! = nil
             for i in 1..<decomposedQueries.count {
                 if let events = queryResults[i] {
                     let cleanedEvents: [Event] = events.enumerated().flatMap { (index, eventEdge) in
@@ -1272,7 +1276,7 @@ open class MCHealthManager: NSObject {
 
             guard mergeError == nil && !sortedEvents.isEmpty else {
 //                if mergeError != nil { log.error(mergeError!.localizedDescription) }
-                completion([], mergeError as NSError?)
+                completion([], mergeError)
                 return
             }
 
@@ -1348,7 +1352,7 @@ open class MCHealthManager: NSObject {
                                                     aggregator: @escaping ((T, (Date, CircadianEvent)) -> T),
                                                     initialAccum: T, initialResult: U,
                                                     final: @escaping ((T) -> U),
-                                                    completion: @escaping (U, _ error: NSError?) -> Void)
+                                                    completion: @escaping (U, _ error: Error?) -> Void)
     {
         fetchCircadianEventIntervals(Date.distantPast) { (intervals, error) in
             guard error == nil else {
@@ -1367,7 +1371,7 @@ open class MCHealthManager: NSObject {
                                                     aggregator: @escaping ((T, (Date, CircadianEvent)) -> T),
                                                     initialAccum: T, initialResult: U,
                                                     final: @escaping ((T) -> U),
-                                                    completion:  @escaping (U, _ error: NSError?) -> Void)
+                                                    completion:  @escaping (U, _ error: Error?) -> Void)
     {
         fetchCircadianEventIntervals(Date.distantPast, endDate: Date.distantFuture) { (intervals, error) in
             guard error == nil else {
@@ -1382,7 +1386,7 @@ open class MCHealthManager: NSObject {
     }
 
     // Compute total eating times per day by filtering and aggregating over meal events.
-    public func fetchEatingTimes(_ startDate: Date = Date().startOfDay, endDate: Date = Date(), completion:  @escaping HMCircadianAggregateBlock)
+    open func fetchEatingTimes(_ startDate: Date = Date().startOfDay, endDate: Date = Date(), completion:  @escaping HMCircadianAggregateBlock)
     {
         // Accumulator:
         // i. boolean indicating whether the current endpoint starts an interval.
@@ -1413,18 +1417,18 @@ open class MCHealthManager: NSObject {
             return eatingTimesByDay.sorted { (a,b) in return a.0 < b.0 }
         }
 
-//        if startDate == nil && endDate == nil {
-//            fetchAggregatedCircadianEvents(nil, aggregator: aggregator, initialAccum: initial, initialResult: [], final: final, completion: completion)
-//        } else {
+        if startDate == nil && endDate == nil {
+            fetchAggregatedCircadianEvents(predicate: nil, aggregator: aggregator, initialAccum: initial, initialResult: [], final: final, completion: completion)
+        } else {
             fetchAggregatedCircadianEvents(Date.init() ?? Date.distantPast, endDate: endDate ?? Date(),
                                            predicate: nil, aggregator: aggregator,
                                            initialAccum: initial, initialResult: [], final: final, completion: completion)
-//        }
+        }
     }
 
     // Compute max fasting times per day by filtering and aggregating over everything other than meal events.
     // This stitches fasting events together if they are sequential (i.e., one ends while the other starts).
-    public func fetchMaxFastingTimes(_ startDate: NSDate? = nil, endDate: NSDate? = nil, completion: @escaping HMCircadianAggregateBlock)
+    open func fetchMaxFastingTimes(_ startDate: NSDate? = nil, endDate: NSDate? = nil, completion: @escaping HMCircadianAggregateBlock)
     {
         // Accumulator:
         // i. boolean indicating whether the current endpoint starts an interval.
@@ -1472,19 +1476,19 @@ open class MCHealthManager: NSObject {
             return byDay.sorted { (a,b) in return a.0 < b.0 }
         }
 
-//        if startDate == nil && endDate == nil {
-//            fetchAggregatedCircadianEvents(predicate, aggregator: aggregator, initialAccum: initial, initialResult: [], final: final, completion: completion)
-//        } else {
+        if startDate == nil && endDate == nil {
+            fetchAggregatedCircadianEvents(predicate: predicate, aggregator: aggregator, initialAccum: initial, initialResult: [], final: final, completion: completion)
+        } else {
             fetchAggregatedCircadianEvents(startDate as Date? ?? Date.distantPast, endDate: endDate as Date? ?? Date(),
                                            predicate: predicate, aggregator: aggregator,
                                            initialAccum: initial, initialResult: [], final: final, completion: completion)
-//        }
+        }
     }
 
     // Computes the number of days in the last year that have at least one sample, for the given types.
     // TODO: cache invalidation in observer query.
-    public func fetchSampleCollectionDays(_ sampleTypes: [HKSampleType], completion: @escaping ([HKSampleType:Int], NSError?) -> Void) {
-        var someError: NSError? = nil
+    public func fetchSampleCollectionDays(_ sampleTypes: [HKSampleType], completion: @escaping ([HKSampleType:Int], Error?) -> Void) {
+        var someError: Error? = nil
         let group = DispatchGroup()
         var results : [HKSampleType:Int] = [:]
 
@@ -1509,9 +1513,9 @@ open class MCHealthManager: NSObject {
 
             aggregateCache.setObject(forKey:key, cacheBlock: { success, failure in
                 // This caches a singleton array by aggregating over all samples for the year.
-                let doCache : ([MCSample], NSError?) -> Void = { (samples, error) in
+                let doCache : ([MCSample], Error?) -> Void = { (samples, error) in
                     guard error == nil else {
-                        failure(error)
+                        failure(error as! NSError)
                         return
                     }
                     let agg = self.aggregateSamplesManually(proxyType, aggOp: aggOp, samples: samples)
@@ -1556,12 +1560,12 @@ open class MCHealthManager: NSObject {
 
     // Fetches summed circadian event durations, grouped according the the given function,
     // and within the specified start and end date.
-    public func fetchCircadianDurationsByGroup<G: Hashable>(
+    open func fetchCircadianDurationsByGroup<G: Hashable>(
                     _ tag: String, startDate: Date, endDate: Date,
                     predicate: ((Date, CircadianEvent) -> Bool)? = nil,
                     transform: ((Double) -> Double)? = nil,
                     groupBy: @escaping ((Date, CircadianEvent) -> G),
-                    completion: @escaping ([G:Double], NSError?) -> Void)
+                    completion: @escaping ([G:Double], Error?) -> Void)
     {
         // Accumulator:
         // i. boolean indicating whether the current endpoint starts an interval.
@@ -1592,8 +1596,8 @@ open class MCHealthManager: NSObject {
 
     // General purpose fasting variability query, aggregating durations according to the given calendar unit.
     // This uses a one-pass variance/stddev calculation to finalize the resulting durations.
-    public func fetchFastingVariability(_ startDate: Date, endDate: Date, aggUnit: Calendar.Component,
-                                        completion: @escaping (_ variability: Double, _ error: NSError?) -> Void)
+    open func fetchFastingVariability(_ startDate: Date, endDate: Date, aggUnit: Calendar.Component,
+                                        completion: @escaping (_ variability: Double, _ error: Error?) -> Void)
     {
         let predicate: ((Date, CircadianEvent) -> Bool) = {
             switch $0.1 {
@@ -1650,8 +1654,8 @@ open class MCHealthManager: NSObject {
     }
     
 
-    public func fetchWeeklyFastingVariability(_ startDate: Date = Date().prevMonth, endDate: Date = Date(),
-                                              completion: @escaping (_ variability: Double, _ error: NSError?) -> Void)
+    open func fetchWeeklyFastingVariability(_ startDate: Date = Date().prevMonth, endDate: Date = Date(),
+                                              completion: @escaping (_ variability: Double, _ error: Error?) -> Void)
     {
 //        log.debug("Query start", feature: "fetchWeeklyFastingVariability")
         let queryStartTime = Date()
@@ -1661,8 +1665,8 @@ open class MCHealthManager: NSObject {
         }
     }
 
-    public func fetchDailyFastingVariability(_ startDate: Date = Date().prevMonth, endDate: Date = Date(),
-                                             completion: @escaping (_ variability: Double, _ error: NSError?) -> Void)
+    open func fetchDailyFastingVariability(_ startDate: Date = Date().prevMonth, endDate: Date = Date(),
+                                             completion: @escaping (_ variability: Double, _ error: Error?) -> Void)
     {
 //        log.debug("Query start", feature: "fetchDailyFastingVariability")
         let queryStartTime = Date()
@@ -1673,7 +1677,7 @@ open class MCHealthManager: NSObject {
     }
 
     // Returns total time spent fasting and non-fasting in the last week
-    public func fetchWeeklyFastState(_ completion: @escaping (_ fast: Double, _ nonFast: Double, _ error: NSError?) -> Void) {
+    open func fetchWeeklyFastState(_ completion: @escaping (_ fast: Double, _ nonFast: Double, _ error: Error?) -> Void) {
         let group : (Date, CircadianEvent) -> Int = { e in
             switch e.1 {
             case .exercise, .sleep, .fast:
@@ -1697,7 +1701,7 @@ open class MCHealthManager: NSObject {
     }
 
     // Returns total time spent fasting while sleeping and fasting while awake in the last week
-    public func fetchWeeklyFastType(_ completion: @escaping (_ fastSleep: Double, _ fastAwake: Double, _ error: NSError?) -> Void) {
+    open func fetchWeeklyFastType(_ completion: @escaping (_ fastSleep: Double, _ fastAwake: Double, _ error: Error?) -> Void) {
         let predicate: ((Date, CircadianEvent) -> Bool) = {
             switch $0.1 {
             case .exercise, .fast, .sleep:
@@ -1731,7 +1735,7 @@ open class MCHealthManager: NSObject {
     }
 
     // Returns total time spent eating and exercising in the last week
-    public func fetchWeeklyEatAndExercise(_ completion: @escaping (_ eatingTime: Double, _ exerciseTime: Double, _ error: NSError?) -> Void) {
+    open func fetchWeeklyEatAndExercise(_ completion: @escaping (_ eatingTime: Double, _ exerciseTime: Double, _ error: Error?) -> Void) {
         let predicate: ((Date, CircadianEvent) -> Bool) = {
             switch $0.1 {
             case .exercise, .meal:
@@ -1764,7 +1768,7 @@ open class MCHealthManager: NSObject {
         }
     }
 
-    public func correlateWithFasting(_ sortFasting: Bool, type: HKSampleType, predicate: NSPredicate? = nil, completion:  @escaping HMFastingCorrelationBlock) {
+    open func correlateWithFasting(_ sortFasting: Bool, type: HKSampleType, predicate: NSPredicate? = nil, completion:  @escaping HMFastingCorrelationBlock) {
         var results1: [MCSample]?
         var results2: [(Date, Double)]?
 
@@ -1787,7 +1791,7 @@ open class MCHealthManager: NSObject {
         group.enter()
         fetchStatisticsOfType(type, predicate: predicate!) { (results, error) -> Void in
             guard error == nil else {
-                completion([], error as! NSError?)
+                completion([], error)
                 group.leave()
                 return
             }
@@ -1809,7 +1813,7 @@ open class MCHealthManager: NSObject {
             guard !(results1 == nil || results2 == nil) else {
                 let desc = results1 == nil ? (results2 == nil ? "LHS and RHS" : "LHS") : "RHS"
                 let err = NSError(domain: HMErrorDomain, code: 1048576, userInfo: [NSLocalizedDescriptionKey: "Invalid \(desc) statistics"])
-                completion([], err as NSError?)
+                completion([], err)
                 return
             }
             var zipped = intersect(results1!, fasting: results2! as! [(Date, Double)])
@@ -1818,8 +1822,8 @@ open class MCHealthManager: NSObject {
         }
     }
 
-    // MARK as NSError? : - Miscellaneous queries
-    public func getOldestSampleDateForType(_ type: HKSampleType, completion: @escaping (Date?) -> ()) {
+    // MARK as Error? : - Miscellaneous queries
+    open func getOldestSampleDateForType(_ type: HKSampleType, completion: @escaping (Date?) -> ()) {
         fetchSamplesOfType(type, predicate: nil, limit: 1) { (samples, error) in
             guard error == nil else {
 //                log.error("Could not get oldest sample for: \(type.displayText ?? type.identifier)")
@@ -1831,17 +1835,17 @@ open class MCHealthManager: NSObject {
     }
 
     // MARK: - Writing into HealthKit
-    public func saveSample(_ sample: HKSample, completion: @escaping (Bool, Error?) -> Void)
+    open func saveSample(_ sample: HKSample, completion: @escaping (Bool, Error?) -> Void)
     {
         healthKitStore.save(sample, withCompletion: completion)
     }
 
-    public func saveSamples(_ samples: [HKSample], completion: @escaping (Bool, Error?) -> Void)
+    open func saveSamples(_ samples: [HKSample], completion: @escaping (Bool, Error?) -> Void)
     {
         healthKitStore.save(samples, withCompletion: completion)
     }
 
-    public func saveSleep(_ startDate: Date, endDate: Date, metadata: NSDictionary, completion: ( (Bool, Error?) -> Void)!)
+    open func saveSleep(_ startDate: Date, endDate: Date, metadata: NSDictionary, completion: ( (Bool, Error?) -> Void)!)
     {
 //        log.debug("Saving sleep event \(startDate) \(endDate)", feature: "saveActivity")
 
@@ -1854,7 +1858,7 @@ open class MCHealthManager: NSObject {
         })
     }
 
-    public func saveWorkout(_ startDate: Date, endDate: Date, activityType: HKWorkoutActivityType, distance: Double, distanceUnit: HKUnit, kiloCalories: Double, metadata:NSDictionary, completion: ( (Bool, Error?) -> Void)!)
+    open func saveWorkout(_ startDate: Date, endDate: Date, activityType: HKWorkoutActivityType, distance: Double, distanceUnit: HKUnit, kiloCalories: Double, metadata:NSDictionary, completion: ( (Bool, Error?) -> Void)!)
     {
 //        log.debug("Saving workout event \(startDate) \(endDate)", feature: "saveActivity")
 
@@ -1869,22 +1873,22 @@ open class MCHealthManager: NSObject {
         })
     }
 
-    public func saveRunningWorkout(_ startDate: Date, endDate: Date, distance:Double, distanceUnit: HKUnit, kiloCalories: Double, metadata: NSDictionary, completion:  ( (Bool, Error?) -> Void)!)
+    open func saveRunningWorkout(_ startDate: Date, endDate: Date, distance:Double, distanceUnit: HKUnit, kiloCalories: Double, metadata: NSDictionary, completion:  ( (Bool, Error?) -> Void)!)
     {
         saveWorkout(startDate, endDate: endDate, activityType: HKWorkoutActivityType.running, distance: distance, distanceUnit: distanceUnit, kiloCalories: kiloCalories, metadata: metadata, completion: completion as! ((Bool, Error?) -> Void)!)
     }
 
-    public func saveCyclingWorkout(_ startDate: Date, endDate: Date, distance:Double, distanceUnit: HKUnit, kiloCalories: Double, metadata: NSDictionary, completion: ( (Bool, Error?) -> Void)!)
+    open func saveCyclingWorkout(_ startDate: Date, endDate: Date, distance:Double, distanceUnit: HKUnit, kiloCalories: Double, metadata: NSDictionary, completion: ( (Bool, Error?) -> Void)!)
     {
         saveWorkout(startDate, endDate: endDate, activityType: HKWorkoutActivityType.cycling, distance: distance, distanceUnit: distanceUnit, kiloCalories: kiloCalories, metadata: metadata, completion: completion as! ((Bool, Error?) -> Void)!)
     }
 
-    public func saveSwimmingWorkout(_ startDate: Date, endDate: Date, distance:Double, distanceUnit: HKUnit, kiloCalories: Double, metadata: NSDictionary, completion: ( (Bool, Error?) -> Void)!)
+    open func saveSwimmingWorkout(_ startDate: Date, endDate: Date, distance:Double, distanceUnit: HKUnit, kiloCalories: Double, metadata: NSDictionary, completion: ( (Bool, Error?) -> Void)!)
     {
         saveWorkout(startDate, endDate: endDate, activityType: HKWorkoutActivityType.swimming, distance: distance, distanceUnit: distanceUnit, kiloCalories: kiloCalories, metadata: metadata, completion: completion as! ((Bool, Error?) -> Void)!)
     }
 
-    public func savePreparationAndRecoveryWorkout(_ startDate: Date, endDate: Date, distance:Double, distanceUnit: HKUnit, kiloCalories: Double, metadata: NSDictionary, completion: ( (Bool, Error?) -> Void)!)
+    open func savePreparationAndRecoveryWorkout(_ startDate: Date, endDate: Date, distance:Double, distanceUnit: HKUnit, kiloCalories: Double, metadata: NSDictionary, completion: ( (Bool, Error?) -> Void)!)
     {
         saveWorkout(startDate, endDate: endDate, activityType: HKWorkoutActivityType.preparationAndRecovery, distance: distance, distanceUnit: distanceUnit, kiloCalories: kiloCalories, metadata: metadata, completion: completion as! ((Bool, Error?) -> Void)!)
     }
@@ -1894,7 +1898,7 @@ open class MCHealthManager: NSObject {
 
     // Due to HealthKit bug, taken from: https://gist.github.com/bendodson/c0f0a6a1f601dc4573ba
 /*    public func deleteSamplesOfType(_ sampleType: HKSampleType, startDate: Date?, endDate: Date?, predicate: NSPredicate,
-                             withCompletion completion: @escaping (_ success: Bool, _ count: Int, _ error: NSError?) -> Void)
+                             withCompletion completion: @escaping (_ success: Bool, _ count: Int, _ error: Error?) -> Void)
     {
         let predWithInterval =
             startDate == nil && endDate == nil ?
@@ -1905,7 +1909,7 @@ open class MCHealthManager: NSObject {
 
         let query = HKSampleQuery(sampleType: sampleType, predicate: predWithInterval, limit: 0, sortDescriptors: nil) { (query, results, error) -> Void in
             if let _ = error {
-                completion(false, 0, error as NSError?)
+                completion(false, 0, error as Error?)
                 return
             }
 
@@ -1926,7 +1930,7 @@ open class MCHealthManager: NSObject {
     }
 
     public func deleteSamples(_ startDate: Date? = nil, endDate: Date? = nil, typesAndPredicates: [HKSampleType: NSPredicate],
-                              completion: @escaping (_ deleted: Int, _ error: NSError?) -> Void)
+                              completion: @escaping (_ deleted: Int, _ error: Error?) -> Void)
     {
         let group = DispatchGroup()
         var numDeleted = 0
@@ -1951,7 +1955,7 @@ open class MCHealthManager: NSObject {
         }
     } */
 
-    public func deleteCircadianEvents(_ startDate: Date, endDate: Date, completion: @escaping (NSError?) -> Void) {
+    public func deleteCircadianEvents(_ startDate: Date, endDate: Date, completion: @escaping (Error?) -> Void) {
         let withSourcePredicate: (NSPredicate) -> NSPredicate = { pred in
             return NSCompoundPredicate(andPredicateWithSubpredicates: [
                 pred, HKQuery.predicateForObjects(from: HKSource.default())
@@ -1974,7 +1978,7 @@ open class MCHealthManager: NSObject {
         let sleepType = HKCategoryType.categoryType(forIdentifier: HKCategoryTypeIdentifier.sleepAnalysis)!
         let sleepPredicate = HKQuery.predicateForCategorySamples(with: .equalTo, value: HKCategoryValueSleepAnalysis.asleep.rawValue)
 
-        let typesAndPredicates: [HKSampleType: NSPredicate] = [
+        let _: [HKSampleType: NSPredicate] = [
             HKWorkoutType.workoutType(): withSourcePredicate(circadianEventPredicates)
           , sleepType: withSourcePredicate(sleepPredicate)
         ]
@@ -2012,6 +2016,7 @@ open class MCHealthManager: NSObject {
         if let task = measureNotifyTaskByType[sampleTypeId] { task?.cancel() }
         let task = Async.background(after: notifyInterval) {
 //            NotificationCenter.defaultCenter.postNotificationName(HMDidUpdateMeasuresPfx + sampleTypeId, object: self)
+            NotificationCenter.default.post(name: NSNotification.Name(rawValue: sampleTypeId), object: self)
         }
         measureNotifyTaskByType.updateValue(task, forKey: sampleTypeId)
     }
@@ -2107,4 +2112,3 @@ public struct DateRange : Sequence {
         }
     }
 }
-
