@@ -144,7 +144,7 @@ Pod::Spec.new do |s|
   # s.xcconfig = { "HEADER_SEARCH_PATHS" => "$(SDKROOT)/usr/include/libxml2" }
   # s.dependency "JSONKit", "~> 1.4"
 
-  s.dependency 'AsyncSwift', '~> 2.0.1'
+  s.dependency 'AsyncSwift', '= 1.7.4'
   s.dependency 'AwesomeCache'
   s.dependency 'SwiftDate', '~> 4.0'
   s.dependency 'SwiftyUserDefaults', '~> 3.0'
