@@ -90,8 +90,8 @@ Pod::Spec.new do |s|
   #  Not including the public_header_files will make all headers public.
   #
 
-  s.source_files  = "Classes", "Classes/**/*.{h,m}"
-  s.exclude_files = "Classes/Exclude"
+  #s.source_files  = "Classes", "Classes/**/*.{h,m}"
+  #s.exclude_files = "Classes/Exclude"
 
   # s.public_header_files = "Classes/**/*.h"
 
@@ -122,6 +122,14 @@ Pod::Spec.new do |s|
   # s.library   = "iconv"
   # s.libraries = "iconv", "xml2"
 
+  s.ios.deployment_target = "9.0"
+  s.watchos.deployment_target = "2.0"
+
+  s.source   = { :git => "https://github.com/twoolf/MCCircadianQueries.git", :tag => "0.2.1"}
+  s.source_files = "MCCircadianQueries/Classes/*.swift"
+  s.requires_arc = true
+  s.module_name = 'MCCircadianQueries'
+
 
   # ――― Project Settings ――――――――――――――――――――――――――――――――――――――――――――――――――――――――― #
   #
@@ -133,9 +141,15 @@ Pod::Spec.new do |s|
 
   # s.xcconfig = { "HEADER_SEARCH_PATHS" => "$(SDKROOT)/usr/include/libxml2" }
   # s.dependency "JSONKit", "~> 1.4"
+
   s.dependency 'AsyncSwift', '~> 2.0.1'
   s.dependency 'AwesomeCache'
-  s.dependency 'SwiftDate', :git => 'https://github.com/malcommac/SwiftDate.git', :branch => 'feature/swift_23'
+  s.dependency 'SwiftDate', '~> 4.0'
   s.dependency 'SwiftyUserDefaults', '~> 3.0'
+
+  # s.dependency 'AsyncSwift', '~> 2.0.1'
+  # s.dependency 'AwesomeCache'
+  # s.dependency 'SwiftDate', :git => 'https://github.com/malcommac/SwiftDate.git', :branch => 'feature/swift_23'
+  # s.dependency 'SwiftyUserDefaults', '~> 3.0'
 
 end
