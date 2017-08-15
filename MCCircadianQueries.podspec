@@ -147,7 +147,7 @@ Pod::Spec.new do |s|
   s.dependency 'AsyncSwift', '= 1.7.4'
   s.dependency 'AwesomeCache'
   s.dependency 'SwiftDate', '~> 4.0'
-  s.dependency 'SwiftyUserDefaults', '~> 3.0'
+  s.dependency 'SwiftyUserDefaults', '~> 2.0'
 
   # s.dependency 'AsyncSwift', '~> 2.0.1'
   # s.dependency 'AwesomeCache'
